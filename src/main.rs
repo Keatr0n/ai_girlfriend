@@ -11,6 +11,7 @@ use llama_cpp_2::{
     model::{LlamaModel, params, AddBos, Special}, sampling::LlamaSampler
 };
 
+use rand::RngCore;
 use stt::Stt;
 
 enum ListeningState {
@@ -115,9 +116,11 @@ fn main() -> anyhow::Result<()> {
             ctx.decode(&mut batch).unwrap();
             n_past += user_tokens.len() as i32;
 
+            let mut rng = rand::rng();
+            
             let mut reply = String::new();
             let mut sampler = LlamaSampler::chain_simple([
-                LlamaSampler::dist(1234),
+                LlamaSampler::dist(rng.next_u32()),
                 LlamaSampler::greedy(),
             ]);
 

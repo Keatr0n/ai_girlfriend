@@ -18,6 +18,7 @@
         pkgs.pkg-config
         pkgs.clippy
         pkgs.rust-analyzer
+        pkgs.ffmpeg
 
         # Full C/C++ toolchain
         pkgs.stdenv.cc      # Provides gcc, g++, libc headers, libstdc++ headers
