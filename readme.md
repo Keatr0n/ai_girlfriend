@@ -1,7 +1,7 @@
 # ai_girlfriend
 Again, the name is a joke. I just wanted to see if I could use rust to wire up Whisper, an LLM and a TTS engine (Piper in this instance) to create a local version of the voice call that chat gpt and a lot of the other big ai companies have.
 
-Turns out with the power of ai, anything is possible. (A fair amount of this was written by Claud and ol' gipity tho that didn't stop me from learning from this experience.)
+Turns out with the power of ai, anything is possible. (A fair amount of this was written by Claude and ol' gipity tho that didn't stop me from learning from this experience.)
 
 Anyway, as for models, I'm using [LFM2 8B Q8](https://huggingface.co/LiquidAI/LFM2-8B-A1B-GGUF) for the LLM because I have slow ram and no gpu acceleration (thanks nixos + integrated graphics).
 
