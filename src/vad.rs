@@ -3,10 +3,7 @@ use webrtc_vad::Vad;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 fn downsample_to_16k_box(input: &[f32], in_rate: u32) -> Vec<f32> {
-    // debug_assert!(in_rate >= 44_100 && in_rate <= 48_000);
-    
-    // Why do I need to halve the speed here?? Why does this need to be doubled??????
-    let step = (in_rate as f32 / 16_000.0) * 2.0;
+    let step = in_rate as f32 / 16_000.0;
     let out_len = (input.len() as f32 / step) as usize;
 
     let mut out = Vec::with_capacity(out_len);
@@ -111,7 +108,6 @@ pub fn run_vad(
 
         // Process fixed 16k frames
         while resample_fifo.len() >= VAD_FRAME_16K {
-            // somehow double the speed???? 
             let vad_frame: Vec<i16> = resample_fifo
                 .drain(..VAD_FRAME_16K)
                 .map(|x| (x.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
@@ -135,7 +131,7 @@ pub fn run_vad(
                 utterance.extend(
                     vad_frame.iter().map(|&s| s as f32 / i16::MAX as f32)
                 );
-                
+
                 if silence >= MAX_SILENCE {
                     if utterance.len() >= 16_000 {
                         // write_wav_16k("utterance.wav", &utterance);

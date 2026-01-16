@@ -32,9 +32,10 @@ pub fn start_mic() -> (ringbuf::HeapCons<f32>, std::mem::ManuallyDrop<Stream>, u
     //     println!("CHOSEN: {}", description.name());
     //     println!("DEVICE DATA: {:?}", device.default_input_config())
     // }
-
+    
+    // maybe in the future I'll make it request one channel from the device, but until then, have this hack
     let config = device.default_input_config().unwrap();
-    let source_rate = config.sample_rate();
+    let source_rate = config.sample_rate() * config.channels() as u32;
 
     let rb = HeapRb::<f32>::new(48_000 * 10);
     let (mut producer, consumer) = rb.split();
