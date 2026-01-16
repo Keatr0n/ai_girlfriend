@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
         .expect("LLM_CONTEXT_SIZE must be a valid number");
 
     let (audio, stream, source_rate) = audio::start_mic();
-    let stt = Stt::new(&whisper_model_path, source_rate)?;
+    let stt = Stt::new(&whisper_model_path)?;
 
     println!("STT online");
 
@@ -86,7 +86,7 @@ fn main() -> anyhow::Result<()> {
         batch.add(*token, i as i32, &[0], is_last).unwrap();
     }
 
-    println!("LLM context initialized");
+    println!("LLM context initializing...");
 
     ctx.decode(&mut batch).unwrap();
     let mut n_past = system_tokens.len() as i32;

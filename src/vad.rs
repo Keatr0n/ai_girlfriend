@@ -2,28 +2,53 @@ use ringbuf::{HeapCons, traits::{Consumer, Observer}};
 use webrtc_vad::Vad;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
-const MAX_SILENCE: usize = 50; // frames of silence before ending utterance
+fn downsample_to_16k_box(input: &[f32], in_rate: u32) -> Vec<f32> {
+    // debug_assert!(in_rate >= 44_100 && in_rate <= 48_000);
+    
+    // Why do I need to halve the speed here?? Why does this need to be doubled??????
+    let step = (in_rate as f32 / 16_000.0) * 2.0;
+    let out_len = (input.len() as f32 / step) as usize;
 
-fn resample_to_16khz(audio: &[f32], source_rate: u32) -> Vec<f32> {
-    if source_rate == 16000 {
-        return audio.to_vec();
+    let mut out = Vec::with_capacity(out_len);
+
+    let mut pos = 0.0f32;
+
+    for _ in 0..out_len {
+        let start = pos as usize;
+        let end = (pos + step) as usize;
+
+        let mut sum = 0.0;
+        let mut count = 0;
+
+        (start..end.min(input.len())).for_each(|i| {
+            sum += input[i];
+            count += 1;
+        });
+
+        out.push(if count > 0 { sum / count as f32 } else { 0.0 });
+        pos += step;
     }
 
-    let ratio = 16000.0 / source_rate as f32;
-    let output_len = (audio.len() as f32 * ratio) as usize;
-    let mut resampled = Vec::with_capacity(output_len);
+    out
+}
 
-    for i in 0..output_len {
-        let src_idx = i as f32 / ratio;
-        let src_idx_floor = src_idx.floor() as usize;
-        let src_idx_ceil = (src_idx_floor + 1).min(audio.len() - 1);
-        let frac = src_idx - src_idx_floor as f32;
+#[allow(dead_code)]
+fn write_wav_16k(path: &str, samples: &[f32]) {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 16000,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
 
-        let sample = audio[src_idx_floor] * (1.0 - frac) + audio[src_idx_ceil] * frac;
-        resampled.push(sample);
+    if let Ok(mut writer) = hound::WavWriter::create(path, spec) {
+        for &s in samples {
+            let _ = writer.write_sample(s);
+        }
+        let _ = writer.finalize();
     }
 
-    resampled
+    println!("AUDIO CAPTURED");
 }
 
 pub fn run_vad(
@@ -36,74 +61,95 @@ pub fn run_vad(
     vad.set_mode(webrtc_vad::VadMode::VeryAggressive);
     vad.set_sample_rate(webrtc_vad::SampleRate::Rate16kHz);
 
-    let mut buffer = Vec::new();
+    const VAD_FRAME_16K: usize = 480; // 30 ms
+    const MAX_SILENCE: usize = 50;
+
+    let source_frame_size = ((source_rate / 100) * 3) as usize; // 30 ms @ source rate
+
+    let mut resample_fifo = Vec::<f32>::new();
+    let mut utterance = Vec::<f32>::new();
+
     let mut silence = 0;
     let mut speaking = false;
     let mut speaking_len = 0;
-    let frame_size: usize = ((source_rate / 100) * 3) as usize;
 
     loop {
-        // Skip processing when muted (AI is speaking)
+        // Muted handling unchanged
         if muted.load(Ordering::Relaxed) {
-            // Clear any accumulated buffer when muted
             if speaking {
-                buffer.clear();
-                speaking_len = 0;
+                utterance.clear();
+                resample_fifo.clear();
                 speaking = false;
+                speaking_len = 0;
                 silence = 0;
             }
-            // Still consume audio to prevent buffer overflow
-            if audio.occupied_len() >= frame_size {
-                for _ in 0..frame_size {
+
+            if audio.occupied_len() >= source_frame_size {
+                for _ in 0..source_frame_size {
                     audio.try_pop();
                 }
             }
+
             std::thread::sleep(std::time::Duration::from_millis(10));
             continue;
         }
 
-        if audio.occupied_len() < frame_size {
+        if audio.occupied_len() < source_frame_size {
             std::thread::sleep(std::time::Duration::from_millis(5));
             continue;
         }
 
-        let mut frame = Vec::with_capacity(frame_size);
-        for _ in 0..frame_size {
+        // Pull one source frame
+        let mut frame = Vec::with_capacity(source_frame_size);
+        for _ in 0..source_frame_size {
             frame.push(audio.try_pop().unwrap());
         }
 
-        let resampled_frame = resample_to_16khz(&frame, source_rate);
+        // Resample and accumulate
+        let resampled = downsample_to_16k_box(&frame, source_rate);
+        resample_fifo.extend(resampled);
 
-        let frame_i16: Vec<i16> = resampled_frame.iter()
-            .map(|x| (x * i16::MAX as f32) as i16)
-            .collect();
+        // Process fixed 16k frames
+        while resample_fifo.len() >= VAD_FRAME_16K {
+            // somehow double the speed???? 
+            let vad_frame: Vec<i16> = resample_fifo
+                .drain(..VAD_FRAME_16K)
+                .map(|x| (x.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+                .collect();
 
-        let speech = vad.is_voice_segment(&frame_i16);
+            let speech = vad.is_voice_segment(&vad_frame).unwrap_or(false);
 
-        if speech == Ok(true) {
-            if speaking_len > 20 {
-                speaking = true;
-            }
-
-            speaking_len += 1;
-            silence = 0;
-            buffer.extend(resampled_frame);
-        } else if speaking {
-
-            silence += 1;
-            buffer.extend(resampled_frame);
-
-            if silence >= MAX_SILENCE {
-                if buffer.len() >= 16000 { // 1 second
-                    on_utterance(buffer.clone());
-                }
-                buffer.clear();
-                speaking = false;
-                speaking_len = 0;
+            if speech {
+                speaking_len += 1;
                 silence = 0;
+
+                if speaking_len > 20 {
+                    speaking = true;
+                }
+
+                utterance.extend(
+                    vad_frame.iter().map(|&s| s as f32 / i16::MAX as f32)
+                );
+            } else if speaking {
+                silence += 1;
+                utterance.extend(
+                    vad_frame.iter().map(|&s| s as f32 / i16::MAX as f32)
+                );
+                
+                if silence >= MAX_SILENCE {
+                    if utterance.len() >= 16_000 {
+                        // write_wav_16k("utterance.wav", &utterance);
+                        on_utterance(utterance.clone());
+                    }
+
+                    utterance.clear();
+                    speaking = false;
+                    speaking_len = 0;
+                    silence = 0;
+                }
+            } else {
+                speaking_len = 0;
             }
-        } else {
-            speaking_len = 0;
         }
     }
 }
