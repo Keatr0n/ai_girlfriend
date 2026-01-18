@@ -1,4 +1,5 @@
 # ai_girlfriend
+
 Again, the name is a joke. I just wanted to see if I could use rust to wire up Whisper, an LLM and a TTS engine (Piper in this instance) to create a local version of the voice call that chat gpt and a lot of the other big ai companies have.
 
 Turns out with the power of ai, anything is possible. (A fair amount of this was written by Claude and ol' gipity tho that didn't stop me from learning from this experience.)
@@ -16,15 +17,21 @@ As for the Piper voice, that's something I'm keeping to myself 😉 ([sourced fr
 If you're normal, you may need [FFmpeg](https://www.ffmpeg.org/) and [Piper](https://github.com/OHF-Voice/piper1-gpl) for the command calls.
 
 Then just run
+
 ```shell
 cargo run
 ```
+
 ---
+
 If you like pain and snow flakes, it'll all be in the flake
+
 ```shell
 nix develop
 ```
-then 
+
+then
+
 ```
 cargo run
 ```

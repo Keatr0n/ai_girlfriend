@@ -52,6 +52,7 @@ pub fn run_vad(
     mut audio: HeapCons<f32>,
     source_rate: u32,
     muted: Arc<AtomicBool>,
+    shutdown: Arc<AtomicBool>,
     mut on_utterance: impl FnMut(Vec<f32>),
 ) {
     let mut vad = Vad::new();
@@ -71,7 +72,13 @@ pub fn run_vad(
     let mut speaking_len = 0;
 
     loop {
-        // Muted handling unchanged
+        if shutdown.load(Ordering::Relaxed) {
+            print!("\x1B[2J\x1B[1;1H");
+            print!("Remembering conversation...");
+            break;
+        }
+
+
         if muted.load(Ordering::Relaxed) {
             if speaking {
                 utterance.clear();
@@ -119,7 +126,7 @@ pub fn run_vad(
                 speaking_len += 1;
                 silence = 0;
 
-                if speaking_len > 20 {
+                if speaking_len > 15 {
                     speaking = true;
                 }
 

@@ -2,3 +2,4 @@
 out.wav
 utterance.wav
 .env
+conversation_history.txt

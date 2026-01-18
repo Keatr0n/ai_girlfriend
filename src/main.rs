@@ -2,22 +2,68 @@ mod audio;
 mod vad;
 mod stt;
 mod tts;
+mod llm;
 
-use std::num::NonZeroU32;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::{sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}};
+use std::fs;
+use std::io::Write;
 
-use llama_cpp_2::{
-    context::params::LlamaContextParams, llama_backend::LlamaBackend, llama_batch::LlamaBatch,
-    model::{LlamaModel, params, AddBos, Special}, sampling::LlamaSampler
-};
-
-use rand::RngCore;
+use llama_cpp_2::model::LlamaChatMessage;
 use stt::Stt;
+
+use crate::llm::Llm;
 
 enum ListeningState {
     Listening,
     Thinking,
     None,
+}
+
+const CONVERSATION_FILE: &str = "conversation_history.txt";
+
+fn load_previous_summary() -> Option<String> {
+    if let Ok(content) = fs::read_to_string(CONVERSATION_FILE)
+        && !content.is_empty() {
+            return Some(format!("\n\nPrevious conversation summary:\n{}\n", content));
+        }
+    None
+}
+
+fn save_conversation(history: &[(String, String)], llm: &mut Llm) -> Result<(), anyhow::Error> {
+    let existing_data = fs::read_to_string(CONVERSATION_FILE).unwrap_or_default();
+    print!("\x1B[2J\x1B[1;1H");
+    print!("Remembering conversation...");
+
+    let mut file = fs::File::create(CONVERSATION_FILE)?;
+    let mut llm_input = vec![LlamaChatMessage::new("system".into(), "You summarize conversations into their key facts".into())?];
+    for (user, ai) in history {
+         llm_input.push(LlamaChatMessage::new("user".into(), user.into())?);
+         llm_input.push(LlamaChatMessage::new("assistant".into(), ai.into())?);
+    }
+    llm_input.push(LlamaChatMessage::new("user".into(), String::from("
+    Summarize this conversation into a brief context block for future sessions. Include:
+    1. Key facts about the user (background, preferences)
+    2. Decisions made or conclusions reached
+    3. Ongoing tasks or issues to remember
+
+    Format as concise bullet points suitable for a system prompt. Focus on actionable context, not play-by-play.
+        "))?);
+
+    let reply = llm.run_inference_once(&llm_input);
+    let mut memories = format!("{}\n{}", existing_data, reply);
+
+    if memories.len() > 2000 {
+        print!("\x1B[2J\x1B[1;1H");
+        print!("Pruning memories...");
+        llm_input.clear();
+        llm_input.push(LlamaChatMessage::new("system".into(), "You summarize dot-point lists into only their most important items".into())?);
+        llm_input.push(LlamaChatMessage::new("user".into(), format!("Reduce this context list by merging related items and removing outdated or low-value information. Keep only what's still relevant and useful for future conversations.\n{}",memories))?);
+
+        memories = llm.run_inference_once(&llm_input);
+    }
+
+    write!(file, "{}", memories)?;
+    Ok(())
 }
 
 fn print_conversation(history: &[(String, String)], listening_state: ListeningState) {
@@ -38,8 +84,13 @@ fn print_conversation(history: &[(String, String)], listening_state: ListeningSt
 fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
-    let system_prompt = std::env::var("SYSTEM_PROMPT")
+    let mut system_prompt = std::env::var("SYSTEM_PROMPT")
         .expect("SYSTEM_PROMPT must be set in .env file");
+
+    if let Some(summary) = load_previous_summary() {
+        system_prompt.push_str(&summary);
+    }
+
     let whisper_model_path = std::env::var("WHISPER_MODEL_PATH")
         .expect("WHISPER_MODEL_PATH must be set in .env file");
     let llm_model_path = std::env::var("LLM_MODEL_PATH")
@@ -60,109 +111,49 @@ fn main() -> anyhow::Result<()> {
 
     println!("STT online");
 
-    let mut backend = LlamaBackend::init()?;
-    backend.void_logs();
-
-    let model = LlamaModel::load_from_file(
-        &backend,
-        &llm_model_path,
-        &params::LlamaModelParams::default()
-    )?;
+   let mut llm = Llm::new(llm_model_path, llm_threads, llm_context_size, system_prompt)?;
 
     println!("LLM loaded");
-
-    let context_params = LlamaContextParams::default()
-        .with_n_threads(llm_threads)
-        .with_n_ctx(NonZeroU32::new(llm_context_size));
-
-    let mut ctx = model.new_context(&backend, context_params)?;
-
-    // Initialize system prompt once
-    let system_tokens = model.str_to_token(&system_prompt, AddBos::Always).unwrap();
-    let mut batch = LlamaBatch::new(512, 1);
-
-    for (i, token) in system_tokens.iter().enumerate() {
-        let is_last = i == system_tokens.len() - 1;
-        batch.add(*token, i as i32, &[0], is_last).unwrap();
-    }
-
-    println!("LLM context initializing...");
-
-    ctx.decode(&mut batch).unwrap();
-    let mut n_past = system_tokens.len() as i32;
 
     let muted = Arc::new(AtomicBool::new(false));
     let muted_clone = muted.clone();
 
-    let mut conversation_history: Vec<(String, String)> = Vec::new();
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_clone = shutdown.clone();
 
-    print_conversation(&conversation_history, ListeningState::Listening);
-    vad::run_vad(audio, source_rate, muted, |utterance| {
+    let conversation_history = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+
+    ctrlc::set_handler(move || {
+        shutdown_clone.store(true, Ordering::Relaxed);
+    })
+    .expect("Error setting Ctrl-C handler");
+
+    print_conversation(&conversation_history.lock().unwrap(), ListeningState::Listening);
+    vad::run_vad(audio, source_rate, muted, shutdown.clone(), |utterance| {
         if let Ok(text) = stt.transcribe(&utterance) {
             if text.trim().is_empty() || text.trim() == "[BLANK_AUDIO]" { return; }
 
             muted_clone.store(true, Ordering::Relaxed);
-            print_conversation(&conversation_history, ListeningState::Thinking);
+            print_conversation(&conversation_history.lock().unwrap(), ListeningState::Thinking);
 
-            // Add user message to context
-            let user_tokens = model.str_to_token(&format!("\n### User: {}\n### Assistant:", text), AddBos::Never).unwrap();
-            batch.clear();
+            let reply = llm.run_inference(&text);
 
-            for (i, token) in user_tokens.iter().enumerate() {
-                let is_last = i == user_tokens.len() - 1;
-                batch.add(*token, n_past + i as i32, &[0], is_last).unwrap();
-            }
+            conversation_history.lock().unwrap().push((text.clone(), reply.clone()));
+            print_conversation(&conversation_history.lock().unwrap(), ListeningState::None);
 
-            ctx.decode(&mut batch).unwrap();
-            n_past += user_tokens.len() as i32;
+            tts::speak(&reply, &piper_model_path).unwrap();
 
-            let mut rng = rand::rng();
-            
-            let mut reply = String::new();
-            let mut sampler = LlamaSampler::chain_simple([
-                LlamaSampler::dist(rng.next_u32()),
-                LlamaSampler::greedy(),
-            ]);
-
-            loop {
-                let token = sampler.sample(&ctx, batch.n_tokens() - 1);
-                sampler.accept(token);
-
-                if model.is_eog_token(token) { break; }
-
-                if let Ok(s) = model.token_to_str(token, Special::Tokenize) {
-                    // Stop if the model starts generating the next turn
-                    if reply.contains("User:") || reply.contains("###") {
-                        break;
-                    }
-                    reply.push_str(&s);
-                }
-
-                batch.clear();
-                batch.add(token, n_past, &[0], true).unwrap();
-                ctx.decode(&mut batch).unwrap();
-                n_past += 1;
-            }
-
-            // Clean up any formatting that leaked through
-            let cleaned_reply = reply
-                .split("User:")
-                .next()
-                .unwrap_or(&reply)
-                .split("###")
-                .next()
-                .unwrap_or(&reply)
-                .trim()
-                .to_string();
-
-            conversation_history.push((text.clone(), cleaned_reply.clone()));
-            print_conversation(&conversation_history, ListeningState::None);
-
-            tts::speak(&cleaned_reply, &piper_model_path).unwrap();
+            // make it seem a little more natural
+            std::thread::sleep(std::time::Duration::from_millis(1000));
             muted_clone.store(false, Ordering::Relaxed);
-            print_conversation(&conversation_history, ListeningState::Listening);
+            print_conversation(&conversation_history.lock().unwrap(), ListeningState::Listening);
         }
     });
+
+    if shutdown.load(Ordering::Relaxed)
+        && let Ok(history) = conversation_history.lock() {
+            let _ = save_conversation(&history, &mut llm);
+        }
 
     #[allow(unused_must_use)]
     std::mem::ManuallyDrop::into_inner(stream);
