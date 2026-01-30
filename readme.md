@@ -35,3 +35,13 @@ then
 ```
 cargo run
 ```
+
+## Commands
+
+There are a few keyboard shortcuts that can help when she misunderstands you or your mum walks into the room
+
+`m`: Will **m**ute the mic when it's listening.
+
+`↑`: (up arrow) Will allow you to edit the last message sent.
+
+`esc`: (escape key) Will cancel inference and delete the last message or cancel the current edit (down arrow also works for this).

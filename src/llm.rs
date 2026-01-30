@@ -1,6 +1,10 @@
-use std::{ num::NonZeroU32};
+use std::num::NonZeroU32;
+use std::sync::mpsc::Receiver;
 
 use llama_cpp_2::{context::{LlamaContext, params::LlamaContextParams}, llama_backend::LlamaBackend, llama_batch::LlamaBatch, model::{AddBos, LlamaChatMessage, LlamaChatTemplate, LlamaModel, Special, params}, sampling::LlamaSampler};
+
+use crate::input::InputEvent;
+use crate::ui;
 use rand::RngCore;
 
 pub struct Llm {
@@ -9,7 +13,8 @@ pub struct Llm {
     _chat_template: LlamaChatTemplate,
     ctx: LlamaContext<'static>,
     n_past: i32,
-    batch: LlamaBatch<'static>
+    batch: LlamaBatch<'static>,
+    exchange_checkpoints: Vec<i32>, // n_past values before each exchange
 }
 
 impl Llm {
@@ -17,7 +22,7 @@ impl Llm {
         let mut backend = Box::new(LlamaBackend::init()?);
         backend.void_logs();
 
-        println!("LLM loaded");
+        ui::status_llm_loaded();
 
         let model = Box::new(LlamaModel::load_from_file(
             &backend,
@@ -52,18 +57,22 @@ impl Llm {
             batch.add(*token, i as i32, &[0], is_last).unwrap();
         }
 
-        println!("LLM context initializing...");
+        ui::status_llm_context_init();
 
         ctx.decode(&mut batch).unwrap();
 
         let n_past = system_tokens.len() as i32;
 
-        Ok(Self { _backend: backend, _model: model, _chat_template, ctx, n_past, batch })
+        Ok(Self { _backend: backend, _model: model, _chat_template, ctx, n_past, batch, exchange_checkpoints: Vec::new() })
     }
 
     // who needs error handling, am I right?
-    pub fn run_inference(&mut self, text: &String) -> String {
-        let chat_message = self._model.apply_chat_template(&self._chat_template, &[LlamaChatMessage::new("user".into(), text.into()).unwrap()], true).unwrap();
+    // Returns None if interrupted by user
+    pub fn run_inference(&mut self, input: &str, interrupt_rx: &Receiver<InputEvent>) -> Option<String> {
+        let n_past_before = self.n_past;
+        self.exchange_checkpoints.push(n_past_before);
+
+        let chat_message = self._model.apply_chat_template(&self._chat_template, &[LlamaChatMessage::new("user".into(), input.into()).unwrap()], true).unwrap();
         let user_tokens = self._model.str_to_token(&chat_message, AddBos::Never).unwrap();
         self.batch.clear();
 
@@ -83,7 +92,15 @@ impl Llm {
             LlamaSampler::greedy(),
         ]);
 
+        let mut interrupted = false;
+
         loop {
+            // Check for interrupt event
+            if let Ok(InputEvent::Interrupt) = interrupt_rx.try_recv() {
+                interrupted = true;
+                break;
+            }
+
             let token = sampler.sample(&self.ctx, self.batch.n_tokens() - 1);
             sampler.accept(token);
 
@@ -99,7 +116,24 @@ impl Llm {
             self.n_past += 1;
         }
 
-        reply
+        if interrupted {
+            // Roll back KV cache to state before this inference
+            let _ = self.ctx.clear_kv_cache_seq(None, Some((n_past_before -1) as u32), Some(self.ctx.kv_cache_seq_pos_max(0) as u32));
+            self.exchange_checkpoints.pop();
+            return None;
+        }
+
+        Some(reply)
+    }
+
+    /// Rolls back the last user/assistant exchange from the KV cache.
+    /// Returns true if there was an exchange to roll back.
+    pub fn rollback_exchange(&mut self) -> bool {
+        if let Some(checkpoint) = self.exchange_checkpoints.pop() {
+            self.ctx.clear_kv_cache_seq(Some(0), Some((checkpoint - 1) as u32), Some(self.ctx.kv_cache_seq_pos_max(0) as u32)).unwrap_or(false)
+        } else {
+            false
+        }
     }
 
     // who needs error handling, am I right?

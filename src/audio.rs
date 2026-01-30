@@ -2,6 +2,8 @@
 use cpal::{Stream, traits::{DeviceTrait, HostTrait, StreamTrait}};
 use ringbuf::{HeapRb, traits::{Producer, Split}};
 
+use crate::ui;
+
 pub fn start_mic() -> (ringbuf::HeapCons<f32>, std::mem::ManuallyDrop<Stream>, u32) {
     let host = cpal::default_host();
 
@@ -32,7 +34,7 @@ pub fn start_mic() -> (ringbuf::HeapCons<f32>, std::mem::ManuallyDrop<Stream>, u
     //     println!("CHOSEN: {}", description.name());
     //     println!("DEVICE DATA: {:?}", device.default_input_config())
     // }
-    
+
     // maybe in the future I'll make it request one channel from the device, but until then, have this hack
     let config = device.default_input_config().unwrap();
     let source_rate = config.sample_rate() * config.channels() as u32;
@@ -46,7 +48,7 @@ pub fn start_mic() -> (ringbuf::HeapCons<f32>, std::mem::ManuallyDrop<Stream>, u
             let _ = producer.push_slice(data);
         },
         |e| {
-            println!("GOT STREAM ERROR {:?}",e);
+            ui::error_stream(e);
         },
         None,
     ).unwrap());
