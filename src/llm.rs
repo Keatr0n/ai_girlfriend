@@ -123,7 +123,7 @@ impl Llm {
             return None;
         }
 
-        Some(reply)
+        Some(reply.replace("\n", "\r\n"))
     }
 
     /// Rolls back the last user/assistant exchange from the KV cache.
