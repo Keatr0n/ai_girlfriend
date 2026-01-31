@@ -1,0 +1,10 @@
+# Optional: set a default assistant to skip the selection prompt
+# default = "Jarvis"
+
+[[assistant]]
+# The assistant will refer to itself by this name
+name = "Jarvis"
+system_prompt = "You are an AI assistant. Keep your responses short and helpful. You respond with no formatting at all, only plain text."
+# llm_model_path = "/path/to/model.gguf"  # Override the default from .env
+# piper_model_path = "/path/to/model.onnx"  # Override the default from .env
+# conversation_file = "Jarvis_history.txt"  # Defaults to {name}_history.txt

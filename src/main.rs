@@ -1,3 +1,4 @@
+mod assistant;
 mod audio;
 mod input;
 mod ui;
@@ -16,44 +17,38 @@ use stt::Stt;
 use crate::llm::Llm;
 use crate::ui::ListeningState;
 
-const CONVERSATION_FILE: &str = "conversation_history.txt";
-
-fn load_previous_summary() -> Option<String> {
-    if let Ok(content) = fs::read_to_string(CONVERSATION_FILE)
+fn load_previous_summary(conversation_file: &str) -> Option<String> {
+    if let Ok(content) = fs::read_to_string(conversation_file)
         && !content.is_empty() {
             return Some(format!("\n\nPrevious conversation summary:\n{}\n", content));
         }
     None
 }
 
-fn save_conversation(history: &[(String, String)], llm: &mut Llm) -> Result<(), anyhow::Error> {
-    let existing_data = fs::read_to_string(CONVERSATION_FILE).unwrap_or_default();
+fn save_conversation(llm: &mut Llm, conversation_file: &str) -> Result<(), anyhow::Error> {
+    let existing_data = fs::read_to_string(conversation_file).unwrap_or_default();
     ui::status_remembering();
 
-    let mut file = fs::File::create(CONVERSATION_FILE)?;
-    let mut llm_input = vec![LlamaChatMessage::new("system".into(), "You summarize conversations into their key facts".into())?];
-    for (user, ai) in history {
-         llm_input.push(LlamaChatMessage::new("user".into(), user.into())?);
-         llm_input.push(LlamaChatMessage::new("assistant".into(), ai.into())?);
-    }
-    llm_input.push(LlamaChatMessage::new("user".into(), String::from("
+    let mut file = fs::File::create(conversation_file)?;
+    let summary = "
     Summarize this conversation into a brief context block for future sessions. Include:
     1. Key facts about the user (background, preferences)
     2. Ongoing discussions and topics of conversation
 
     Format as concise bullet points suitable for a system prompt. Focus on actionable context, not play-by-play.
-        "))?);
+        ";
 
-    let reply = llm.run_inference_once(&llm_input, LlamaBatch::new(65536, 1));
-    let mut memories = format!("{}\n{}", existing_data, reply);
+    let reply = llm.run_inference(summary, None);
+    let mut memories = format!("{}\n{}", existing_data, reply.unwrap_or("".into()));
+    let mut llm_input: Vec<LlamaChatMessage> = vec![];
 
     if memories.len() > 2000 {
         ui::status_pruning();
-        llm_input.clear();
         llm_input.push(LlamaChatMessage::new("system".into(), "You summarize dot-point lists into only their most important items".into())?);
         llm_input.push(LlamaChatMessage::new("user".into(), format!("Reduce this context list by merging related items and removing outdated or low-value information. Keep only what's still relevant and useful for future conversations.\n{}",memories))?);
 
-        memories = llm.run_inference_once(&llm_input, LlamaBatch::new(4096, 1));
+        // there is a small chance this could fill up indefinitely, but honestly it's probably gonna be fine
+        memories = llm.run_inference_once(&llm_input, LlamaBatch::new(4096, 1)).unwrap_or(memories);
     }
 
     ui::status_goodbye();
@@ -65,19 +60,25 @@ fn save_conversation(history: &[(String, String)], llm: &mut Llm) -> Result<(), 
 fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
-    let mut system_prompt = std::env::var("SYSTEM_PROMPT")
-        .expect("SYSTEM_PROMPT must be set in .env file");
+    // Load assistant config and select
+    let config = assistant::load_config()?;
+    let selected = assistant::select_assistant(&config)?;
+    let conversation_file = selected.conversation_file();
 
-    if let Some(summary) = load_previous_summary() {
+    let mut system_prompt = format!("Your name is {}. {}", selected.name.clone(), selected.system_prompt.clone());
+
+    if let Some(summary) = load_previous_summary(&conversation_file) {
         system_prompt.push_str(&summary);
     }
 
     let whisper_model_path = std::env::var("WHISPER_MODEL_PATH")
         .expect("WHISPER_MODEL_PATH must be set in .env file");
-    let llm_model_path = std::env::var("LLM_MODEL_PATH")
-        .expect("LLM_MODEL_PATH must be set in .env file");
-    let piper_model_path = std::env::var("PIPER_MODEL_PATH")
-        .expect("PIPER_MODEL_PATH must be set in .env file");
+    let llm_model_path = selected.llm_model_path.clone()
+        .unwrap_or_else(|| std::env::var("LLM_MODEL_PATH")
+            .expect("LLM_MODEL_PATH must be set in .env file or assistant config"));
+    let piper_model_path = selected.piper_model_path.clone()
+        .unwrap_or_else(|| std::env::var("PIPER_MODEL_PATH")
+        .expect("PIPER_MODEL_PATH must be set in .env file or assistant config"));
     let llm_threads: i32 = std::env::var("LLM_THREADS")
         .expect("LLM_THREADS must be set in .env file")
         .parse()
@@ -101,7 +102,8 @@ fn main() -> anyhow::Result<()> {
     let muted_clone = muted.clone();
 
     let shutdown = Arc::new(AtomicBool::new(false));
-
+    let conversation_file = Arc::new(conversation_file);
+    let conversation_file_clone = conversation_file.clone();
 
     let conversation_history = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
     let conversation_history_edit = conversation_history.clone();
@@ -116,7 +118,7 @@ fn main() -> anyhow::Result<()> {
         muted_clone.store(true, Ordering::Relaxed);
         ui::print_conversation(&conversation_history.lock().unwrap(), ListeningState::Thinking);
 
-        let reply = match llm.lock().unwrap().run_inference(&text, interrupt_rx) {
+        let reply = match llm.lock().unwrap().run_inference(&text, Some(interrupt_rx)) {
             Some(r) => r,
             None => {
                 conversation_history.lock().unwrap().pop();
@@ -153,9 +155,8 @@ fn main() -> anyhow::Result<()> {
         on_text(value, interrupt_rx);
     });
 
-    if shutdown.load(Ordering::Relaxed)
-        && let Ok(history) = conversation_history.lock() {
-            let _ = save_conversation(&history, &mut llm.lock().unwrap());
+    if shutdown.load(Ordering::Relaxed) {
+            let _ = save_conversation(&mut llm.lock().unwrap(), &conversation_file_clone);
         }
 
     ui::restore_cursor();

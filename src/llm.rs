@@ -68,7 +68,7 @@ impl Llm {
 
     // who needs error handling, am I right?
     // Returns None if interrupted by user
-    pub fn run_inference(&mut self, input: &str, interrupt_rx: &Receiver<InputEvent>) -> Option<String> {
+    pub fn run_inference(&mut self, input: &str, interrupt_rx: Option<&Receiver<InputEvent>>) -> Option<String> {
         let n_past_before = self.n_past;
         self.exchange_checkpoints.push(n_past_before);
 
@@ -96,7 +96,7 @@ impl Llm {
 
         loop {
             // Check for interrupt event
-            if let Ok(InputEvent::Interrupt) = interrupt_rx.try_recv() {
+            if let Some(interrupt) = interrupt_rx && let Ok(InputEvent::Interrupt) = interrupt.try_recv() {
                 interrupted = true;
                 break;
             }
@@ -136,8 +136,7 @@ impl Llm {
         }
     }
 
-    // who needs error handling, am I right?
-    pub fn run_inference_once(&mut self, messages: &[LlamaChatMessage], mut batch: LlamaBatch) -> String {
+    pub fn run_inference_once(&mut self, messages: &[LlamaChatMessage], mut batch: LlamaBatch) -> anyhow::Result<String> {
         let size = self.ctx.get_state_size();
 
         let mut buffer = vec![0u8; size];
@@ -148,17 +147,17 @@ impl Llm {
 
         self.ctx.clear_kv_cache();
 
-        let chat_message = self._model.apply_chat_template(&self._chat_template, messages, true).unwrap();
-        let user_tokens = self._model.str_to_token(&chat_message, AddBos::Never).unwrap();
+        let chat_message = self._model.apply_chat_template(&self._chat_template, messages, true)?;
+        let user_tokens = self._model.str_to_token(&chat_message, AddBos::Never)?;
 
         batch.clear();
 
         for (i, token) in user_tokens.iter().enumerate() {
             let is_last = i == user_tokens.len() - 1;
-            batch.add(*token, i as i32, &[0], is_last).unwrap();
+            batch.add(*token, i as i32, &[0], is_last)?;
         }
 
-        self.ctx.decode(&mut batch).unwrap();
+        self.ctx.decode(&mut batch)?;
 
         let mut rng = rand::rng();
 
@@ -181,8 +180,8 @@ impl Llm {
             }
 
             batch.clear();
-            batch.add(token, n_past, &[0], true).unwrap();
-            self.ctx.decode(&mut batch).unwrap();
+            batch.add(token, n_past, &[0], true)?;
+            self.ctx.decode(&mut batch)?;
             n_past += 1;
         }
 
@@ -190,6 +189,6 @@ impl Llm {
             self.ctx.set_state_data(&buffer);
         }
 
-        reply
+        Ok(reply)
     }
 }

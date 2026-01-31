@@ -150,3 +150,33 @@ pub fn error_stream(e: impl std::fmt::Debug) {
 pub fn debug_audio_captured() {
     println!("AUDIO CAPTURED");
 }
+
+// === Assistant Selection ===
+
+pub fn assistant_selection_header() {
+    clear_screen();
+    print!("=== Select Assistant ===\n\r\n\r");
+    flush();
+}
+
+pub fn assistant_option(index: usize, name: &str) {
+    print!("  [{}] {}\n\r", index, name);
+    flush();
+}
+
+pub fn assistant_prompt(max: usize) {
+    show_cursor();
+    print!("\n\rSelect (1-{}): ", max);
+    flush();
+}
+
+pub fn assistant_selected(name: &str) {
+    clear_screen();
+    print!("Using assistant: {}\n\r", name);
+    flush();
+}
+
+pub fn assistant_invalid_selection() {
+    print!("\n\rInvalid selection.\n\rDefaulting to first.");
+    flush();
+}

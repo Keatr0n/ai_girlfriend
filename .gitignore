@@ -2,4 +2,4 @@
 out.wav
 utterance.wav
 .env
-conversation_history.txt
+jarvis_history.txt
