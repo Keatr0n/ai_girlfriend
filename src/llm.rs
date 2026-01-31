@@ -137,7 +137,7 @@ impl Llm {
     }
 
     // who needs error handling, am I right?
-    pub fn run_inference_once(&mut self, messages: &[LlamaChatMessage]) -> String {
+    pub fn run_inference_once(&mut self, messages: &[LlamaChatMessage], mut batch: LlamaBatch) -> String {
         let size = self.ctx.get_state_size();
 
         let mut buffer = vec![0u8; size];
@@ -151,14 +151,14 @@ impl Llm {
         let chat_message = self._model.apply_chat_template(&self._chat_template, messages, true).unwrap();
         let user_tokens = self._model.str_to_token(&chat_message, AddBos::Never).unwrap();
 
-        self.batch.clear();
+        batch.clear();
 
         for (i, token) in user_tokens.iter().enumerate() {
             let is_last = i == user_tokens.len() - 1;
-            self.batch.add(*token, i as i32, &[0], is_last).unwrap();
+            batch.add(*token, i as i32, &[0], is_last).unwrap();
         }
 
-        self.ctx.decode(&mut self.batch).unwrap();
+        self.ctx.decode(&mut batch).unwrap();
 
         let mut rng = rand::rng();
 
@@ -171,7 +171,7 @@ impl Llm {
         let mut n_past: i32 = user_tokens.len() as i32;
 
         loop {
-            let token = sampler.sample(&self.ctx, self.batch.n_tokens() - 1);
+            let token = sampler.sample(&self.ctx, batch.n_tokens() - 1);
             sampler.accept(token);
 
             if self._model.is_eog_token(token) { break; }
@@ -180,9 +180,9 @@ impl Llm {
                 reply.push_str(&s);
             }
 
-            self.batch.clear();
-            self.batch.add(token, n_past, &[0], true).unwrap();
-            self.ctx.decode(&mut self.batch).unwrap();
+            batch.clear();
+            batch.add(token, n_past, &[0], true).unwrap();
+            self.ctx.decode(&mut batch).unwrap();
             n_past += 1;
         }
 

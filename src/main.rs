@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::fs;
 use std::io::Write;
 
-use llama_cpp_2::model::LlamaChatMessage;
+use llama_cpp_2::{llama_batch::LlamaBatch, model::LlamaChatMessage};
 use stt::Stt;
 
 use crate::llm::Llm;
@@ -44,7 +44,7 @@ fn save_conversation(history: &[(String, String)], llm: &mut Llm) -> Result<(), 
     Format as concise bullet points suitable for a system prompt. Focus on actionable context, not play-by-play.
         "))?);
 
-    let reply = llm.run_inference_once(&llm_input);
+    let reply = llm.run_inference_once(&llm_input, LlamaBatch::new(65536, 1));
     let mut memories = format!("{}\n{}", existing_data, reply);
 
     if memories.len() > 2000 {
@@ -53,7 +53,7 @@ fn save_conversation(history: &[(String, String)], llm: &mut Llm) -> Result<(), 
         llm_input.push(LlamaChatMessage::new("system".into(), "You summarize dot-point lists into only their most important items".into())?);
         llm_input.push(LlamaChatMessage::new("user".into(), format!("Reduce this context list by merging related items and removing outdated or low-value information. Keep only what's still relevant and useful for future conversations.\n{}",memories))?);
 
-        memories = llm.run_inference_once(&llm_input);
+        memories = llm.run_inference_once(&llm_input, LlamaBatch::new(4096, 1));
     }
 
     ui::status_goodbye();
