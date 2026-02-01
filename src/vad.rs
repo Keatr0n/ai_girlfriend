@@ -1,9 +1,5 @@
 use ringbuf::{HeapCons, traits::{Consumer, Observer}};
-use crate::ui;
 use webrtc_vad::Vad;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc::Receiver};
-
-use crate::input::InputEvent;
 
 fn downsample_to_16k_box(input: &[f32], in_rate: u32) -> Vec<f32> {
     let step = in_rate as f32 / 16_000.0;
@@ -47,18 +43,12 @@ fn write_wav_16k(path: &str, samples: &[f32]) {
         }
         let _ = writer.finalize();
     }
-
-    ui::debug_audio_captured();
 }
 
 pub fn run_vad(
     mut audio: HeapCons<f32>,
     source_rate: u32,
-    muted: Arc<AtomicBool>,
-    shutdown: Arc<AtomicBool>,
-    input_rx: Receiver<InputEvent>,
-    mut on_utterance: impl FnMut(Vec<f32>, &Receiver<InputEvent>),
-    mut on_edit_last: impl FnMut(String, &Receiver<InputEvent>),
+    mut on_utterance: impl FnMut(Vec<f32>),
 ) {
     let mut vad = Vad::new();
     vad.set_mode(webrtc_vad::VadMode::VeryAggressive);
@@ -75,53 +65,8 @@ pub fn run_vad(
     let mut silence = 0;
     let mut speaking = false;
     let mut speaking_len = 0;
-    let mut manually_muted = false;
 
     loop {
-        // Check for input events
-        while let Ok(event) = input_rx.try_recv() {
-            match event {
-                InputEvent::Shutdown => {
-                    shutdown.store(true, Ordering::Relaxed);
-                    return;
-                }
-                InputEvent::EditSubmit(text) => {
-                    on_edit_last(text, &input_rx);
-                }
-                InputEvent::Muted => {
-                    if !muted.load(Ordering::Relaxed) {
-                        manually_muted = !manually_muted;
-                        if manually_muted {
-                            ui::muted();
-                        } else {
-                            ui::unmuted();
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-
-        if muted.load(Ordering::Relaxed) || manually_muted {
-            if speaking {
-                utterance.clear();
-                resample_fifo.clear();
-                speaking = false;
-                speaking_len = 0;
-                silence = 0;
-            }
-
-            if audio.occupied_len() >= source_frame_size {
-                for _ in 0..source_frame_size {
-                    audio.try_pop();
-                }
-            }
-
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            continue;
-        }
-
         if audio.occupied_len() < source_frame_size {
             std::thread::sleep(std::time::Duration::from_millis(5));
             continue;
@@ -166,7 +111,7 @@ pub fn run_vad(
                 if silence >= MAX_SILENCE {
                     if utterance.len() >= 16_000 {
                         // write_wav_16k("utterance.wav", &utterance);
-                        on_utterance(utterance.clone(), &input_rx);
+                        on_utterance(utterance.clone());
                     }
 
                     utterance.clear();

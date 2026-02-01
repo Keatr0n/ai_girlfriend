@@ -1,5 +1,6 @@
 # Optional: set a default assistant to skip the selection prompt
 # default = "Jarvis"
+# If there is only one assistant present, it will be selected by default
 
 [[assistant]]
 # The assistant will refer to itself by this name

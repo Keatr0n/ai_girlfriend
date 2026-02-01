@@ -1,46 +1,33 @@
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crossterm::event::{poll, read, Event, KeyCode, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
-use crate::ui;
-
-#[derive(Debug, Clone)]
-pub enum InputEvent {
-    Shutdown,
-    Interrupt,
-    EditStart,
-    EditCancel,
-    EditSubmit(String),
-    Muted,
-}
+use crate::state::{LifeCycleState, LlmCommand, StateHandle};
 
 pub struct InputHandle {
-    pub rx: Receiver<InputEvent>,
     _handle: JoinHandle<()>,
 }
 
-pub fn spawn_input_thread(history: Arc<Mutex<Vec<(String, String)>>>) -> InputHandle {
-    let (tx, rx) = mpsc::channel();
+pub fn spawn_input_thread(state: StateHandle) -> InputHandle {
 
     let handle = thread::spawn(move || {
-        run_input_loop(tx, history);
+        run_input_loop(state);
     });
 
-    InputHandle { rx, _handle: handle }
+    InputHandle { _handle: handle }
 }
 
-fn run_input_loop(tx: Sender<InputEvent>, history: Arc<Mutex<Vec<(String, String)>>>) {
+fn run_input_loop(state: StateHandle) {
     let _ = enable_raw_mode();
 
-    let mut is_editing = false;
-    let mut edit_buffer = String::new();
-    let mut courser_pos: usize = 0;
-
     loop {
+        let current_state = state.read();
+        if current_state.life_cycle_state == LifeCycleState::ShuttingDown {
+            break;
+        }
+
         if !poll(Duration::from_millis(10)).unwrap_or(false) {
             continue;
         }
@@ -52,79 +39,97 @@ fn run_input_loop(tx: Sender<InputEvent>, history: Arc<Mutex<Vec<(String, String
         // Ctrl+C - shutdown
         if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
             let _ = disable_raw_mode();
-            let _ = tx.send(InputEvent::Shutdown);
+            state.update(|s| {
+                s.life_cycle_state = LifeCycleState::ShuttingDown
+            });
             break;
         }
 
-        if is_editing {
+        if let Some((edit_buffer, cursor_pos)) = current_state.current_edit {
             match key.code {
                 KeyCode::Down | KeyCode::Esc => {
-                    is_editing = false;
-                    edit_buffer.clear();
-                    ui::edit_cancel();
-                    let _ = tx.send(InputEvent::EditCancel);
+                    state.update(|s| {
+                        s.current_edit = None;
+                    });
                 }
                 KeyCode::Backspace => {
-                    if courser_pos <= 1 || edit_buffer.chars().count() == 0 {
+                    if cursor_pos <= 1 || edit_buffer.chars().count() == 0 {
                         continue;
                     }
 
-                    if courser_pos - 1 < edit_buffer.chars().count() {
-                        edit_buffer.remove(courser_pos-2);
+                    let mut new_buffer = edit_buffer.clone();
+
+                    if cursor_pos - 1 < edit_buffer.chars().count() {
+                        new_buffer.remove(cursor_pos-2);
                     } else {
-                        edit_buffer.pop();
+                        new_buffer.pop();
                     }
-                    courser_pos -= 1;
-                    ui::edit_show_buffer(&edit_buffer, courser_pos);
+
+                    state.update(|s| {
+                        s.current_edit = Some((new_buffer,cursor_pos-1));
+                    });
                 }
                 KeyCode::Enter => {
-                    is_editing = false;
-                    let text = std::mem::take(&mut edit_buffer);
-                    ui::edit_submit();
-                    let _ = tx.send(InputEvent::EditSubmit(text));
+                    let text = edit_buffer.clone();
+                    state.update(|s| {
+                        s.current_edit = None;
+                        s.conversation.pop();
+                        s.conversation.push((text.clone(), "".into()));
+                        s.llm_command = Some(LlmCommand::EditLastMessage(text));
+                    });
                 }
                 KeyCode::Left => {
-                    if courser_pos > 1 {
-                        ui::move_courser_left();
-                        courser_pos -=1;
+                    if cursor_pos > 1 {
+                        state.update(|s| {
+                            s.current_edit = Some((edit_buffer, cursor_pos-1));
+                        });
                     }
                 }
                 KeyCode::Right => {
-                    if courser_pos <= edit_buffer.chars().count() {
-                        ui::move_courser_right();
-                        courser_pos +=1;
+                    if cursor_pos <= edit_buffer.chars().count() {
+                        state.update(|s| {
+                            s.current_edit = Some((edit_buffer, cursor_pos+1));
+                        });
                     }
                 }
                 _ => {
                     if let Some(c) = key.code.as_char() {
-                        if courser_pos >= edit_buffer.chars().count() {
-                            edit_buffer.push(c);
+                        let mut new_buffer = edit_buffer.clone();
+                        if cursor_pos >= edit_buffer.chars().count() {
+                            new_buffer.push(c);
                         } else {
-                            edit_buffer.insert(courser_pos-1, c);
+                            new_buffer.insert(cursor_pos-1, c);
                         }
-                        courser_pos += 1;
-                        ui::edit_show_buffer(&edit_buffer, courser_pos);
+
+                        state.update(|s| {
+                            s.current_edit = Some((new_buffer, cursor_pos+1));
+                        });
                     }
                 }
             }
         } else {
             match key.code {
                 KeyCode::Up => {
-                    is_editing = true;
-
-                    if let Ok(history) = history.lock() && let Some((user, _)) = history.last() {
+                    let current = state.read();
+                    let mut edit_buffer = String::new();
+                    if let Some((user, _)) = current.conversation.last() {
                         edit_buffer = user.clone();
                     }
 
-                    courser_pos = edit_buffer.chars().count() +1;
-                    ui::edit_start(&edit_buffer);
-                    let _ = tx.send(InputEvent::EditStart);
+                    let cursor_pos = edit_buffer.chars().count() +1;
+                    state.update(|s| {
+                        s.current_edit = Some((edit_buffer, cursor_pos+1));
+                    });
                 }
                 KeyCode::Esc => {
-                    let _ = tx.send(InputEvent::Interrupt);
+                    state.update(|s| {
+                        s.llm_command = Some(LlmCommand::CancelInference);
+                    });
                 }
                 KeyCode::Char('m') => {
-                    let _ = tx.send(InputEvent::Muted);
+                    state.update(|s| {
+                        s.user_mute = !s.user_mute;
+                    });
                 }
                 _ => {}
             }

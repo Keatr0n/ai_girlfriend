@@ -1,9 +1,31 @@
-use std::io::{self, Write};
+use std::{io::{self, Write}, thread::{self, JoinHandle}};
 
-pub enum ListeningState {
-    Listening,
-    Thinking,
-    None,
+use crossterm::terminal;
+
+use crate::state::{LifeCycleState, LlmState, State, StateHandle};
+
+pub fn run_ui_loop(state: StateHandle) {
+    while state.subscribe().recv().is_ok() {
+        let s = state.read();
+        if s.life_cycle_state != LifeCycleState::Running {
+            break;
+        }
+
+        let _ = print_conversation(s);
+    }
+}
+
+pub struct UiHandle {
+    _handle: JoinHandle<()>,
+}
+
+pub fn spawn_ui_thread(state: StateHandle) -> UiHandle {
+
+    let handle = thread::spawn(move || {
+        run_ui_loop(state);
+    });
+
+    UiHandle { _handle: handle }
 }
 
 /// Clears the screen and moves cursor to top
@@ -28,7 +50,7 @@ pub fn flush() {
 
 // === Status Messages ===
 
-pub fn status(msg: &str) {
+fn status(msg: &str) {
     print!("{}\n\r", msg);
     flush();
 }
@@ -68,10 +90,11 @@ pub fn status_goodbye() {
 
 // === Conversation Display ===
 
-pub fn print_conversation(history: &[(String, String)], state: ListeningState) {
-    hide_cursor();
+fn print_conversation(state: State) -> anyhow::Result<()> {
     clear_screen();
     print!("=== Conversation ===\n\r");
+
+    let history = state.conversation;
 
     for (user, ai) in history {
         print!("\nYou: {}\n\n\r", user);
@@ -80,57 +103,42 @@ pub fn print_conversation(history: &[(String, String)], state: ListeningState) {
         }
     }
 
-    match state {
-        ListeningState::Listening => print!("---\n\rListening...\n\r"),
-        ListeningState::Thinking => print!("---\n\rThinking...\n\r"),
-        ListeningState::None => print!("---\n\r"),
+   match state.llm_state {
+        LlmState::RunningInference => print!("---\n\rThinking...\n\r"),
+        LlmState::RunningTts => print!("---\n\r"),
+        LlmState::AwaitingInput => {
+            if state.user_mute {
+                print!("---\n\r");
+            } else {
+                print!("---\n\rListening...\n\r");
+            }
+        },
+    }
+
+    if state.user_mute {
+        print!("[Muted]\n\r");
+    }
+
+    if let Some((buffer, cursor_pos)) = state.current_edit {
+        show_cursor();
+        let (width, _height) = terminal::size()?;
+
+        print!("\r\x1B[K> {}", buffer);
+
+        let prompt_len = 2; // "> "
+        let total_pos = prompt_len + cursor_pos;
+        let term_width = width as usize;
+
+        let line = total_pos / term_width;
+        let col = (total_pos % term_width) + 1;
+
+        print!("\r\x1b[{}A\x1b[{}G", line, col);
+    } else {
+        hide_cursor();
     }
 
     flush();
-}
-
-pub fn muted() {
-    print!("\x1B[1A\r\x1B[2K");
-    flush();
-}
-
-pub fn unmuted() {
-    print!("Listening...\n\r");
-    flush();
-}
-
-// === Input Editing ===
-
-pub fn edit_cancel() {
-    print!("\r\x1B[2K\x1b[?25l\x1b[1A");
-    flush();
-}
-
-pub fn edit_show_buffer(buffer: &str, courser_pos: usize) {
-    print!("\r\x1B[K> {}\x1b[{}G", buffer, courser_pos+2);
-    flush();
-}
-
-pub fn edit_submit() {
-    print!("\r\x1B[2K");
-    hide_cursor();
-    flush();
-}
-
-pub fn edit_start(buffer: &str) {
-    show_cursor();
-    print!("\n\r\x1B[K> {}", buffer);
-    flush();
-}
-
-pub fn move_courser_left() {
-    print!("\x1b[1D");
-    flush();
-}
-
-pub fn move_courser_right() {
-    print!("\x1b[1C");
-    flush();
+    Ok(())
 }
 
 // === Cleanup ===
