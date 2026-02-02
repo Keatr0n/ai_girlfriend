@@ -1,7 +1,5 @@
 use std::sync::{mpsc, Arc, RwLock};
 
-use llama_cpp_2::model::LlamaChatMessage;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LlmState {
     RunningInference,
@@ -21,7 +19,7 @@ pub enum LlmCommand {
     ContinueConversation(String),
     EditLastMessage(String),
     CancelInference,
-    DestroyContextAndRunFromNothing(Vec<LlamaChatMessage>)
+    DestroyContextAndRunFromNothing(Vec<(String, String)>)
 }
 
 #[derive(Clone, Debug)]
@@ -41,7 +39,7 @@ impl Default for State {
         Self {
             life_cycle_state: LifeCycleState::Initializing,
             conversation: Vec::new(),
-            system_mute: false,
+            system_mute: true,
             user_mute: false,
             current_edit: None,
             llm_command: None,

@@ -53,14 +53,14 @@ fn run_input_loop(state: StateHandle) {
                     });
                 }
                 KeyCode::Backspace => {
-                    if cursor_pos <= 1 || edit_buffer.chars().count() == 0 {
+                    if cursor_pos == 0 || edit_buffer.chars().count() == 0 {
                         continue;
                     }
 
                     let mut new_buffer = edit_buffer.clone();
 
-                    if cursor_pos - 1 < edit_buffer.chars().count() {
-                        new_buffer.remove(cursor_pos-2);
+                    if cursor_pos < edit_buffer.chars().count() {
+                        new_buffer.remove(cursor_pos-1);
                     } else {
                         new_buffer.pop();
                     }
@@ -79,14 +79,14 @@ fn run_input_loop(state: StateHandle) {
                     });
                 }
                 KeyCode::Left => {
-                    if cursor_pos > 1 {
+                    if cursor_pos > 0 {
                         state.update(|s| {
                             s.current_edit = Some((edit_buffer, cursor_pos-1));
                         });
                     }
                 }
                 KeyCode::Right => {
-                    if cursor_pos <= edit_buffer.chars().count() {
+                    if cursor_pos < edit_buffer.chars().count() {
                         state.update(|s| {
                             s.current_edit = Some((edit_buffer, cursor_pos+1));
                         });
@@ -98,7 +98,7 @@ fn run_input_loop(state: StateHandle) {
                         if cursor_pos >= edit_buffer.chars().count() {
                             new_buffer.push(c);
                         } else {
-                            new_buffer.insert(cursor_pos-1, c);
+                            new_buffer.insert(cursor_pos, c);
                         }
 
                         state.update(|s| {
@@ -116,9 +116,9 @@ fn run_input_loop(state: StateHandle) {
                         edit_buffer = user.clone();
                     }
 
-                    let cursor_pos = edit_buffer.chars().count() +1;
+                    let cursor_pos = edit_buffer.chars().count();
                     state.update(|s| {
-                        s.current_edit = Some((edit_buffer, cursor_pos+1));
+                        s.current_edit = Some((edit_buffer, cursor_pos));
                     });
                 }
                 KeyCode::Esc => {

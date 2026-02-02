@@ -1,12 +1,10 @@
 use std::fs;
 use std::io::Write;
 
-use llama_cpp_2::model::LlamaChatMessage;
-
 use crate::state::{LlmCommand, LlmState, StateHandle};
 use crate::ui;
 
-pub fn save_conversation(state: &StateHandle, conversation_file: &str) -> Result<(), anyhow::Error> {
+pub fn save_conversation(state: StateHandle, conversation_file: &str) -> Result<(), anyhow::Error> {
     let current_state = state.read();
 
     if current_state.conversation.is_empty() {
@@ -15,9 +13,6 @@ pub fn save_conversation(state: &StateHandle, conversation_file: &str) -> Result
     }
 
     ui::status_remembering();
-    state.update(|s| {
-        s.tts_command = Some("Give me a moment, I am just filing this conversation away so I can remember it later.".into());
-    });
 
     let existing_data = fs::read_to_string(conversation_file).unwrap_or_default();
 
@@ -35,7 +30,7 @@ Format as concise bullet points suitable for a system prompt. Focus on actionabl
     let summary = loop {
         let _ = rx.recv();
         let s = state.read();
-        if s.llm_state == LlmState::AwaitingInput
+        if s.llm_state == LlmState::AwaitingInput && s.llm_command.is_none()
             && let Some((_, reply)) = s.conversation.last() {
                 break reply.clone();
             }
@@ -52,22 +47,21 @@ Format as concise bullet points suitable for a system prompt. Focus on actionabl
         ui::status_pruning();
 
         let prune_messages = vec![
-            LlamaChatMessage::new(
+            (
                 "system".into(),
                 "You summarize dot-point lists into only their most important items".into(),
-            )?,
-            LlamaChatMessage::new(
+            ),
+            (
                 "user".into(),
                 format!(
                     "Reduce this context list by merging related items and removing outdated or low-value information. Keep only what's still relevant and useful for future conversations.\n{}",
                     memories
                 ),
-            )?,
+            ),
         ];
 
         state.update(|s| {
             s.llm_command = Some(LlmCommand::DestroyContextAndRunFromNothing(prune_messages));
-            s.tts_command = Some("It seems we've talked a lot in the past. So I'll need to prune some of these memories so I don't consume your whole drive.".into());
         });
 
         // Wait for LLM to finish pruning
@@ -75,7 +69,7 @@ Format as concise bullet points suitable for a system prompt. Focus on actionabl
         memories = loop {
             let _ = rx.recv();
             let s = state.read();
-            if s.llm_state == LlmState::AwaitingInput
+            if s.llm_state == LlmState::AwaitingInput && s.llm_command.is_none()
                 && let Some((_, reply)) = s.conversation.last() {
                     break reply.clone();
                 }

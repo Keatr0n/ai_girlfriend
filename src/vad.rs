@@ -1,6 +1,8 @@
 use ringbuf::{HeapCons, traits::{Consumer, Observer}};
 use webrtc_vad::Vad;
 
+use crate::state::{LifeCycleState, StateHandle};
+
 fn downsample_to_16k_box(input: &[f32], in_rate: u32) -> Vec<f32> {
     let step = in_rate as f32 / 16_000.0;
     let out_len = (input.len() as f32 / step) as usize;
@@ -46,6 +48,7 @@ fn write_wav_16k(path: &str, samples: &[f32]) {
 }
 
 pub fn run_vad(
+    state: StateHandle,
     mut audio: HeapCons<f32>,
     source_rate: u32,
     mut on_utterance: impl FnMut(Vec<f32>),
@@ -67,6 +70,10 @@ pub fn run_vad(
     let mut speaking_len = 0;
 
     loop {
+        if state.read().life_cycle_state == LifeCycleState::ShuttingDown {
+            break;
+        }
+
         if audio.occupied_len() < source_frame_size {
             std::thread::sleep(std::time::Duration::from_millis(5));
             continue;

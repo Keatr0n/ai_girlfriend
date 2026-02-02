@@ -57,6 +57,12 @@ fn run_llm_loop(state: StateHandle, path: String, llm_threads: i32, llm_context_
     let mut n_past = system_tokens.len() as i32;
     let mut exchange_checkpoints: Vec<i32> = vec![];
 
+    state.update(|s|{
+        s.llm_state = LlmState::AwaitingInput;
+        s.system_mute = false;
+        s.life_cycle_state = LifeCycleState::Running;
+    });
+
     while state.subscribe().recv().is_ok() {
         let current_state = state.read();
 
@@ -70,7 +76,9 @@ fn run_llm_loop(state: StateHandle, path: String, llm_threads: i32, llm_context_
                 crate::state::LlmCommand::ContinueConversation(message) => vec![LlamaChatMessage::new("user".into(), message).unwrap()],
                 crate::state::LlmCommand::DestroyContextAndRunFromNothing(llama_chat_messages) => {
                     ctx.clear_kv_cache();
-                    llama_chat_messages
+                    llama_chat_messages.iter().map(|(role, message)| {
+                        LlamaChatMessage::new(role.into(), message.into()).unwrap()
+                    }).collect()
                 },
                 crate::state::LlmCommand::EditLastMessage(message) => {
                     if let Some(checkpoint) = exchange_checkpoints.pop() {

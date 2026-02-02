@@ -99,7 +99,7 @@ fn print_conversation(state: State) -> anyhow::Result<()> {
     for (user, ai) in history {
         print!("\nYou: {}\n\n\r", user);
         if !ai.is_empty() {
-            print!("AI: {}\n\r", ai);
+            print!("AI: {}\n\r", ai.replace("\n", "\n\r"));
         }
     }
 
@@ -123,16 +123,30 @@ fn print_conversation(state: State) -> anyhow::Result<()> {
         show_cursor();
         let (width, _height) = terminal::size()?;
 
-        print!("\r\x1B[K> {}", buffer);
+        print!("> {}", buffer);
 
-        let prompt_len = 2; // "> "
+        let prompt_len = 2;
+        let buffer_len = buffer.chars().count() + prompt_len;
         let total_pos = prompt_len + cursor_pos;
         let term_width = width as usize;
 
-        let line = total_pos / term_width;
+        let num_lines = (buffer_len - (buffer_len % term_width)) / term_width;
+
+        let mut line = num_lines - ((total_pos - (total_pos % term_width)) / term_width);
+
+        // brute force
+        if (buffer_len % term_width) == 0 && line != 0 {
+            line -= 1;
+        }
+
         let col = (total_pos % term_width) + 1;
 
-        print!("\r\x1b[{}A\x1b[{}G", line, col);
+        print!("\r\x1b[{}G", col);
+        if line > 0 {
+            print!("\x1b[{}A", line);
+        } else if (total_pos % term_width) == 0 {
+            print!("\x1b[1B");
+        }
     } else {
         hide_cursor();
     }

@@ -9,12 +9,11 @@ mod stt;
 mod tts;
 mod llm;
 
-use std::sync::Arc;
 use std::fs;
 
 use stt::Stt;
 
-use crate::state::{LifeCycleState, LlmCommand, StateHandle};
+use crate::{shutdown::save_conversation, state::{LlmCommand, StateHandle}};
 
 fn load_previous_summary(conversation_file: &str) -> Option<String> {
     if let Ok(content) = fs::read_to_string(conversation_file)
@@ -62,8 +61,6 @@ fn main() -> anyhow::Result<()> {
 
     #[allow(clippy::arc_with_non_send_sync)]
 
-    ui::status_llm_loaded();
-
     // Initialize global state
     let state = StateHandle::new();
     let state_for_audio = state.clone();
@@ -71,9 +68,7 @@ fn main() -> anyhow::Result<()> {
     let state_for_ui = state.clone();
     let state_for_llm = state.clone();
     let state_for_tts = state.clone();
-
-    let conversation_file = Arc::new(conversation_file);
-    let conversation_file_clone = conversation_file.clone();
+    let state_for_vad = state.clone();
 
     let _ = input::spawn_input_thread(state_for_input);
     let _ = ui::spawn_ui_thread(state_for_ui);
@@ -82,7 +77,7 @@ fn main() -> anyhow::Result<()> {
 
     let (audio, stream, source_rate) = audio::start_mic(state_for_audio);
 
-    vad::run_vad(audio, source_rate, |utterance| {
+    vad::run_vad(state_for_vad, audio, source_rate, |utterance| {
         if let Ok(text) = stt.transcribe(&utterance) {
             if text.trim().is_empty() || text.trim() == "[BLANK_AUDIO]" { return; }
 
@@ -94,11 +89,10 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    if state.read().life_cycle_state == LifeCycleState::ShuttingDown {
-        let _ = shutdown::save_conversation(&state, &conversation_file_clone);
-    }
-
+    save_conversation(state, &conversation_file)?;
+    
     ui::restore_cursor();
+
     #[allow(unused_must_use)]
     std::mem::ManuallyDrop::into_inner(stream);
     Ok(())
