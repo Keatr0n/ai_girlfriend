@@ -50,5 +50,5 @@ There are a few keyboard shortcuts that can help when she misunderstands you or 
 
 Two files will need to be filled in before you can start.
 
-1. .env - This should be fairly obvious, and I've even included an example to make your life easier.
-2. assistants.toml - This is where you can set up and customize your many girlfrie... I mean assistants. There is an example one included so you know what options you have, but the only things that are required are a name and system prompt. 
+1. `.env` - This should be fairly obvious, and I've even included an example to make your life easier.
+2. `assistants.toml` - This is where you can set up and customize your many girlfrie... I mean assistants. There is an example one included so you know what options you have, but the only things that are required are a name and system prompt. 
