@@ -115,13 +115,14 @@ fn print_conversation(state: State) -> anyhow::Result<()> {
         },
     }
 
-    if state.user_mute {
-        print!("[Muted]\n\r");
-    }
+    if let Some((buffer, cursor_pos)) = state.text_input {
+        if state.llm_state != LlmState::RunningInference { show_cursor(); } else { hide_cursor(); }
 
-    if let Some((buffer, cursor_pos)) = state.current_edit {
-        show_cursor();
         let (width, _height) = terminal::size()?;
+
+        if state.is_editing {
+            print!("[Editing last message]\n\r");
+        }
 
         print!("> {}", buffer);
 
