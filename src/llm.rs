@@ -66,6 +66,10 @@ fn run_llm_loop(state: StateHandle, path: String, llm_threads: i32, llm_context_
     while state.subscribe().recv().is_ok() {
         let current_state = state.read();
 
+        state.update(|s|{
+            s.llm_state = LlmState::RunningInference;
+        });
+
         let messages: Vec<LlamaChatMessage> = if let Some(command) = current_state.llm_command {
             match command {
                 crate::state::LlmCommand::CancelInference => continue,
@@ -89,7 +93,6 @@ fn run_llm_loop(state: StateHandle, path: String, llm_threads: i32, llm_context_
         };
 
         state.update(|s|{
-            s.llm_state = LlmState::RunningInference;
             s.llm_command = None;
         });
 
