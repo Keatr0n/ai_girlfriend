@@ -14,7 +14,7 @@ pub fn save_conversation(state: StateHandle, conversation_file: &str) -> Result<
 
     ui::status_remembering();
 
-    let existing_data = fs::read_to_string(conversation_file).unwrap_or_default();
+    let mut existing_memories = fs::read_to_string(conversation_file).unwrap_or_default();
 
     let summary_prompt = "Summarize this conversation into a brief context block for future sessions. Include:
 1. Key facts about the user (background, preferences)
@@ -36,26 +36,20 @@ Format as concise bullet points suitable for a system prompt. Focus on actionabl
             }
     };
 
-    let mut memories = if existing_data.is_empty() {
-        summary
-    } else {
-        format!("{}\n{}", existing_data.trim(), summary)
-    };
-
     // If memories are too large, ask LLM to prune them
-    if memories.len() > 2000 {
+    if existing_memories.len() > 2000 {
         ui::status_pruning();
 
         let prune_messages = vec![
             (
                 "system".into(),
-                "You summarize dot-point lists into only their most important items".into(),
+                "You summarize dot-point lists into only their most important items returning only the list".into(),
             ),
             (
                 "user".into(),
                 format!(
-                    "Reduce this context list by merging related items and removing outdated or low-value information. Keep only what's still relevant and useful for future conversations.\n{}",
-                    memories
+                    "Reduce this context list by merging related items and removing outdated or low-value information. Keep only what's still relevant and useful for future conversations. Format as concise bullet points suitable for a system prompt.\n{}\n",
+                    existing_memories
                 ),
             ),
         ];
@@ -66,7 +60,7 @@ Format as concise bullet points suitable for a system prompt. Focus on actionabl
 
         // Wait for LLM to finish pruning
         let rx = state.subscribe();
-        memories = loop {
+        existing_memories = loop {
             let _ = rx.recv();
             let s = state.read();
             if s.llm_state == LlmState::AwaitingInput && s.llm_command.is_none()
@@ -75,6 +69,12 @@ Format as concise bullet points suitable for a system prompt. Focus on actionabl
                 }
         };
     }
+
+    let memories = if existing_memories.is_empty() {
+        summary
+    } else {
+        format!("{}\n{}", existing_memories.trim(), summary)
+    };
 
     let mut file = fs::File::create(conversation_file)?;
     write!(file, "{}", memories)?;
