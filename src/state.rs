@@ -19,7 +19,8 @@ pub enum LlmCommand {
     ContinueConversation(String),
     EditLastMessage(String),
     CancelInference,
-    DestroyContextAndRunFromNothing(Vec<(String, String)>)
+    DestroyContextAndRunFromNothing(Vec<(String, String)>),
+    DestroySystemPromptAndContinueConversation(String),
 }
 
 #[derive(Clone, Debug)]

@@ -16,14 +16,14 @@ pub fn save_conversation(state: StateHandle, conversation_file: &str) -> Result<
 
     let mut existing_memories = fs::read_to_string(conversation_file).unwrap_or_default();
 
-    let summary_prompt = "Summarize this conversation into a brief context block for future sessions. Include:
+    let summary_prompt = "Summarize our conversation into a brief context block for future sessions. Include:
 1. Key facts about the user (background, preferences)
 2. Ongoing discussions and topics of conversation
 
-Format as concise bullet points suitable for a system prompt. Focus on actionable context, not play-by-play.";
+Format as concise bullet points.";
 
     state.update(|s| {
-        s.llm_command = Some(LlmCommand::ContinueConversation(summary_prompt.into()));
+        s.llm_command = Some(LlmCommand::DestroySystemPromptAndContinueConversation(summary_prompt.into()));
     });
 
     let rx = state.subscribe();
@@ -48,7 +48,7 @@ Format as concise bullet points suitable for a system prompt. Focus on actionabl
             (
                 "user".into(),
                 format!(
-                    "Reduce this context list by merging related items and removing outdated or low-value information. Keep only what's still relevant and useful for future conversations. Format as concise bullet points suitable for a system prompt.\n{}\n",
+                    "Reduce this list by merging related items and removing outdated or low-value information. Keep only what's still relevant and useful for future conversations. Format as concise bullet points.\n{}\n",
                     existing_memories
                 ),
             ),

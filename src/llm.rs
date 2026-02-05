@@ -54,7 +54,8 @@ fn run_llm_loop(state: StateHandle, path: String, llm_threads: i32, llm_context_
 
     ctx.decode(&mut batch).unwrap();
 
-    let mut n_past = system_tokens.len() as i32;
+    let system_token_len = system_tokens.len() as i32;
+    let mut n_past = system_token_len;
     let mut exchange_checkpoints: Vec<i32> = vec![];
 
     state.update(|s|{
@@ -68,15 +69,20 @@ fn run_llm_loop(state: StateHandle, path: String, llm_threads: i32, llm_context_
 
         let messages: Vec<LlamaChatMessage> = if let Some(command) = current_state.llm_command {
             match command {
-                crate::state::LlmCommand::CancelInference => continue,
-                crate::state::LlmCommand::ContinueConversation(message) => vec![LlamaChatMessage::new("user".into(), message).unwrap()],
-                crate::state::LlmCommand::DestroyContextAndRunFromNothing(llama_chat_messages) => {
+                LlmCommand::CancelInference => continue,
+                LlmCommand::ContinueConversation(message) => vec![LlamaChatMessage::new("user".into(), message).unwrap()],
+                LlmCommand::DestroyContextAndRunFromNothing(llama_chat_messages) => {
                     ctx.clear_kv_cache();
                     llama_chat_messages.iter().map(|(role, message)| {
                         LlamaChatMessage::new(role.into(), message.into()).unwrap()
                     }).collect()
                 },
-                crate::state::LlmCommand::EditLastMessage(message) => {
+                LlmCommand::DestroySystemPromptAndContinueConversation(message) => {
+                    let _ = ctx.clear_kv_cache_seq(None, Some(0), Some(system_token_len as u32));
+
+                    vec![LlamaChatMessage::new("user".into(), message).unwrap()]
+                },
+                LlmCommand::EditLastMessage(message) => {
                     if let Some(checkpoint) = exchange_checkpoints.pop() {
                         ctx.clear_kv_cache_seq(Some(0), Some((checkpoint - 1) as u32), Some(ctx.kv_cache_seq_pos_max(0) as u32)).unwrap_or(false);
                     }
