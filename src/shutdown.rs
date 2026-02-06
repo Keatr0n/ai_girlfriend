@@ -1,10 +1,14 @@
 use std::fs;
 use std::io::Write;
 
+use regex::Regex;
+
 use crate::state::{LlmCommand, LlmState, StateHandle};
 use crate::ui;
 
 pub fn save_conversation(state: StateHandle, conversation_file: &str) -> Result<(), anyhow::Error> {
+    let re = Regex::new(r"(<think>[\s\S]*?<\/think>)*")?;
+
     let current_state = state.read();
 
     if current_state.conversation.is_empty() {
@@ -32,7 +36,7 @@ Format as concise bullet points.";
         let s = state.read();
         if s.llm_state == LlmState::AwaitingInput && s.llm_command.is_none()
             && let Some((_, reply)) = s.conversation.last() {
-                break reply.clone();
+                break re.replace_all(&reply.clone(), "").trim().into();
             }
     };
 
@@ -65,7 +69,7 @@ Format as concise bullet points.";
             let s = state.read();
             if s.llm_state == LlmState::AwaitingInput && s.llm_command.is_none()
                 && let Some((_, reply)) = s.conversation.last() {
-                    break reply.clone();
+                    break re.replace_all(&reply.clone(), "").trim().into();
                 }
         };
     }

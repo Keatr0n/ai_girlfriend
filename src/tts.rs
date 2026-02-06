@@ -2,6 +2,8 @@ use std::process::{Command, Stdio};
 use std::io::Write;
 use std::thread::{self, JoinHandle};
 
+use regex::Regex;
+
 use crate::state::{LifeCycleState, LlmState, StateHandle};
 
 
@@ -19,6 +21,7 @@ pub fn spawn_tts_thread(state: StateHandle, model_path: String) -> TtsHandle {
 }
 
 fn run_tts_loop(state: StateHandle, model_path: String) -> anyhow::Result<()> {
+    let re = Regex::new(r"(<think>[\s\S]*?<\/think>)*(\**)*")?;
 
     while state.subscribe().recv().is_ok() {
         let current_state = state.read();
@@ -37,7 +40,7 @@ fn run_tts_loop(state: StateHandle, model_path: String) -> anyhow::Result<()> {
                 .stdin(Stdio::piped())
                 .spawn()?;
 
-            child.stdin.take().unwrap().write_all(text.as_bytes())?;
+            child.stdin.take().unwrap().write_all(re.replace_all(&text, "").as_bytes())?;
             child.wait()?;
 
             // Play the audio

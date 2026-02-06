@@ -22,6 +22,7 @@
         pkgs.alsa-lib
         pkgs.pipewire
         pkgs.libpulseaudio
+        # pkgs.rocmPackages.clr
 
         pkgs.ffmpeg
         pkgs.piper-tts

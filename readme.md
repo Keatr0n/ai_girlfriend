@@ -48,6 +48,8 @@ There are a few keyboard shortcuts that can help when she misunderstands you or 
 
 `esc`: (escape key) Will cancel inference and delete the last message or cancel the current edit (down arrow also works for this).
 
+`?`: (question mark) Will show thinking tags if you are using a thinking model.
+
 ## Configuration and Customization
 
 Two files will need to be filled in before you can start.

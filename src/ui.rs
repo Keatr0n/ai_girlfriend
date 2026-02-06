@@ -1,17 +1,20 @@
 use std::{io::{self, Write}, thread::{self, JoinHandle}};
 
 use crossterm::terminal;
+use regex::Regex;
 
 use crate::state::{LifeCycleState, LlmState, State, StateHandle};
 
 pub fn run_ui_loop(state: StateHandle) {
+    let re = Regex::new(r"(<think>[\s\S]*?<\/think>)*").ok();
+
     while state.subscribe().recv().is_ok() {
         let s = state.read();
         if s.life_cycle_state != LifeCycleState::Running {
             break;
         }
 
-        let _ = print_conversation(s);
+        let _ = print_conversation(s, &re);
     }
 }
 
@@ -90,7 +93,7 @@ pub fn status_goodbye() {
 
 // === Conversation Display ===
 
-fn print_conversation(state: State) -> anyhow::Result<()> {
+fn print_conversation(state: State, re: &Option<Regex>) -> anyhow::Result<()> {
     clear_screen();
     print!("=== Conversation ===\n\r");
 
@@ -99,7 +102,11 @@ fn print_conversation(state: State) -> anyhow::Result<()> {
     for (user, ai) in history {
         print!("\nYou: {}\n\n\r", user);
         if !ai.is_empty() {
-            print!("AI: {}\n\r", ai.replace("\n", "\n\r"));
+            if let Some(reg) = &re && state.is_hiding_think_tags {
+                print!("AI: {}\n\r", reg.replace_all(&ai.replace("\n", "\n\r"), "").trim());
+            } else {
+                print!("AI: {}\n\r", ai.replace("\n", "\n\r"));
+            }
         }
     }
 

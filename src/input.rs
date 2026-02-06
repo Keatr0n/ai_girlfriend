@@ -157,6 +157,11 @@ fn run_input_loop(state: StateHandle) {
                         s.user_mute = true;
                     });
                 }
+                KeyCode::Char('?') => {
+                    state.update(|s| {
+                        s.is_hiding_think_tags = !s.is_hiding_think_tags;
+                    });
+                }
                 _ => {}
             }
         }

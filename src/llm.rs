@@ -1,7 +1,8 @@
 use std::thread::JoinHandle;
-use std::{num::NonZeroU32, thread};
+use std::num::{NonZeroU32};
+use std::thread;
 
-use llama_cpp_2::{context::{params::LlamaContextParams}, llama_backend::LlamaBackend, llama_batch::LlamaBatch, model::{AddBos, LlamaChatMessage, LlamaModel, Special, params}, sampling::LlamaSampler};
+use llama_cpp_2::{context::{params::LlamaContextParams}, llama_backend::LlamaBackend, llama_batch::LlamaBatch, model::{AddBos, LlamaChatMessage, LlamaModel, params}, sampling::LlamaSampler};
 
 use crate::state::{LifeCycleState, LlmCommand, LlmState};
 use crate::{state::StateHandle};
@@ -121,6 +122,7 @@ fn run_llm_loop(state: StateHandle, path: String, llm_threads: i32, llm_context_
             LlamaSampler::dist(rng.next_u32()),
             LlamaSampler::greedy(),
         ]);
+        let mut decoder = encoding_rs::UTF_8.new_decoder();
 
         let mut interrupted = false;
 
@@ -136,7 +138,7 @@ fn run_llm_loop(state: StateHandle, path: String, llm_threads: i32, llm_context_
 
             if model.is_eog_token(token) { break; }
 
-            if let Ok(s) = model.token_to_str(token, Special::Tokenize) {
+            if let Ok(s) = model.token_to_piece(token, &mut decoder, true, None) {
                 reply.push_str(&s);
             }
 
