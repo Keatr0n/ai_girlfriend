@@ -1,6 +1,7 @@
 use std::thread::JoinHandle;
 use std::num::{NonZeroU32};
 use std::thread;
+use std::time::Instant;
 
 use llama_cpp_2::{context::{params::LlamaContextParams}, llama_backend::LlamaBackend, llama_batch::LlamaBatch, model::{AddBos, LlamaChatMessage, LlamaModel, params}, sampling::LlamaSampler};
 
@@ -119,8 +120,7 @@ fn run_llm_loop(state: StateHandle, path: String, llm_threads: i32, llm_context_
 
         let mut reply = String::new();
         let mut sampler = LlamaSampler::chain_simple([
-            LlamaSampler::dist(rng.next_u32()),
-            LlamaSampler::greedy(),
+            LlamaSampler::dist(rng.next_u32())
         ]);
         let mut decoder = encoding_rs::UTF_8.new_decoder();
 
@@ -158,6 +158,10 @@ fn run_llm_loop(state: StateHandle, path: String, llm_threads: i32, llm_context_
         state.update(|s|{
             if let Some((user, _)) = s.conversation.pop() {
                 s.conversation.push((user, reply.clone()));
+
+                if s.is_only_responding_after_name {
+                    s.time_since_name_was_said = Some(Instant::now());
+                }
 
                 if s.life_cycle_state != LifeCycleState::ShuttingDown {
                     s.llm_state = LlmState::RunningTts;

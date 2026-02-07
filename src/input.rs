@@ -162,6 +162,12 @@ fn run_input_loop(state: StateHandle) {
                         s.is_hiding_think_tags = !s.is_hiding_think_tags;
                     });
                 }
+                KeyCode::Char('n') => {
+                    state.update(|s| {
+                        s.is_only_responding_after_name = !s.is_only_responding_after_name;
+                        s.time_since_name_was_said = None;
+                    });
+                }
                 _ => {}
             }
         }

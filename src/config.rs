@@ -4,7 +4,20 @@ use std::io;
 
 use crate::ui;
 
-const CONFIG_FILE: &str = "assistants.toml";
+const CONFIG_FILE: &str = "./config.toml";
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct GlobalConfig {
+    pub whisper_model_path: String,
+    #[serde(default)]
+    pub default_llm_model_path: Option<String>,
+    #[serde(default)]
+    pub default_piper_model_path: Option<String>,
+    pub llm_threads: i32,
+    pub llm_context_size: u32,
+    #[serde(default)]
+    pub default_assistant: Option<String>,
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Assistant {
@@ -19,9 +32,8 @@ pub struct Assistant {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct AssistantsConfig {
-    #[serde(default)]
-    pub default: Option<String>,
+pub struct Config {
+    pub global: GlobalConfig,
     pub assistant: Vec<Assistant>,
 }
 
@@ -33,13 +45,13 @@ impl Assistant {
     }
 }
 
-pub fn load_config() -> anyhow::Result<AssistantsConfig> {
+pub fn load_config() -> anyhow::Result<Config> {
     let content = fs::read_to_string(CONFIG_FILE)?;
-    let config: AssistantsConfig = toml::from_str(&content)?;
+    let config: Config = toml::from_str(&content)?;
     Ok(config)
 }
 
-pub fn select_assistant(config: &AssistantsConfig) -> anyhow::Result<Assistant> {
+pub fn select_assistant(config: &Config) -> anyhow::Result<Assistant> {
     if config.assistant.is_empty() {
         anyhow::bail!("No assistants defined in config");
     }
@@ -50,7 +62,7 @@ pub fn select_assistant(config: &AssistantsConfig) -> anyhow::Result<Assistant> 
     }
 
     // Check for default
-    if let Some(default_name) = &config.default &&
+    if let Some(default_name) = &config.global.default_assistant &&
         let Some(assistant) = config.assistant.iter().find(|a| &a.name == default_name) {
             ui::assistant_selected(&assistant.name);
             return Ok(assistant.clone());

@@ -58,7 +58,7 @@ pub fn run_vad(
     vad.set_sample_rate(webrtc_vad::SampleRate::Rate16kHz);
 
     const VAD_FRAME_16K: usize = 480; // 30 ms
-    const MAX_SILENCE: usize = 50;
+    const MAX_SILENCE: usize = 35;
 
     let source_frame_size = ((source_rate / 100) * 3) as usize; // 30 ms @ source rate
 

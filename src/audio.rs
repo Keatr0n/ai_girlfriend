@@ -10,7 +10,7 @@ pub fn start_mic(state: StateHandle) -> (ringbuf::HeapCons<f32>, std::mem::Manua
     let device = host.default_input_device().expect("No mic");
 
     let config = device.default_input_config().unwrap();
-    let source_rate = config.sample_rate() * config.channels() as u32;
+    let source_rate = (config.sample_rate() * config.channels() as u32).0;
 
     let rb = HeapRb::<f32>::new(48_000 * 10);
     let (mut producer, consumer) = rb.split();

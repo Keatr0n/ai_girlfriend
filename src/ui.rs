@@ -5,7 +5,7 @@ use regex::Regex;
 
 use crate::state::{LifeCycleState, LlmState, State, StateHandle};
 
-pub fn run_ui_loop(state: StateHandle) {
+pub fn run_ui_loop(state: StateHandle, model_name: String) {
     let re = Regex::new(r"(<think>[\s\S]*?<\/think>)*").ok();
 
     while state.subscribe().recv().is_ok() {
@@ -14,7 +14,7 @@ pub fn run_ui_loop(state: StateHandle) {
             break;
         }
 
-        let _ = print_conversation(s, &re);
+        let _ = print_conversation(s, &re, &model_name);
     }
 }
 
@@ -22,10 +22,10 @@ pub struct UiHandle {
     _handle: JoinHandle<()>,
 }
 
-pub fn spawn_ui_thread(state: StateHandle) -> UiHandle {
+pub fn spawn_ui_thread(state: StateHandle, model_name: String) -> UiHandle {
 
     let handle = thread::spawn(move || {
-        run_ui_loop(state);
+        run_ui_loop(state, model_name);
     });
 
     UiHandle { _handle: handle }
@@ -93,7 +93,7 @@ pub fn status_goodbye() {
 
 // === Conversation Display ===
 
-fn print_conversation(state: State, re: &Option<Regex>) -> anyhow::Result<()> {
+fn print_conversation(state: State, re: &Option<Regex>, model_name: &String) -> anyhow::Result<()> {
     clear_screen();
     print!("=== Conversation ===\n\r");
 
@@ -116,6 +116,8 @@ fn print_conversation(state: State, re: &Option<Regex>) -> anyhow::Result<()> {
         LlmState::AwaitingInput => {
             if state.user_mute {
                 print!("---\n\r");
+            } else if state.is_only_responding_after_name && match state.time_since_name_was_said {None => true, Some(instant) => instant.elapsed().as_secs() > 5} {
+                print!("---\n\rListening for {}...\r\n", model_name);
             } else {
                 print!("---\n\rListening...\n\r");
             }

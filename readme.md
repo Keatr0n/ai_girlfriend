@@ -50,9 +50,12 @@ There are a few keyboard shortcuts that can help when she misunderstands you or 
 
 `?`: (question mark) Will show thinking tags if you are using a thinking model.
 
+`n`: Will set the model to only respond after you say it's **n**ame.
+
 ## Configuration and Customization
 
-Two files will need to be filled in before you can start.
+Before you start, you'll need to fill in the `config.toml`
 
-1. `.env` - This should be fairly obvious, and I've even included an example to make your life easier.
-2. `assistants.toml` - This is where you can set up and customize your many girlfrie... I mean assistants. There is an example one included so you know what options you have, but the only things that are required are a name and system prompt.
+Under `[global]` you'll find all your standard things, like model locations and llm config stuff.
+
+And under `[[assistant]]` you can set up and customize your many girlfrie... I mean assistants. There is an example one included so you know what options you have, but the only things that are required are a name and system prompt.

@@ -5,8 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.100"
-dotenvy = "0.15.7"
-cpal = "0.17.1"
+cpal = "0.16.0"
 rodio = "0.21.1"
 regex = "1.12.3"
 whisper-rs = "0.15.1"
