@@ -163,6 +163,7 @@ fn run_llm_loop(
         let mut rng = rand::rng();
 
         let mut reply = String::new();
+        let mut last_message_chunk_index = 0;
         let mut sampler = LlamaSampler::chain_simple([LlamaSampler::dist(rng.next_u32())]);
         let mut decoder = encoding_rs::UTF_8.new_decoder();
 
@@ -189,13 +190,10 @@ fn run_llm_loop(
                         if let Some((user, _)) = s.conversation.pop() {
                             s.conversation.push((user, reply.clone()));
                         }
-                        if end_sentence.is_match(&t)
-                            && let Some(sentence) = {
-                                let mut p: Vec<&str> = end_sentence.split(&reply).collect();
-                                format!("{}{}", p.pop().unwrap_or(""), p.pop().unwrap_or("")).into()
-                            }
-                        {
-                            s.tts_commands.push(sentence);
+                        if end_sentence.is_match(&t) {
+                            let sentence = &reply[last_message_chunk_index..];
+                            last_message_chunk_index = reply.len();
+                            s.tts_commands.push(sentence.into());
                         }
                     });
                 }
