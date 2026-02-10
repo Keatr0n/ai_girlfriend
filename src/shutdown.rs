@@ -63,7 +63,6 @@ Format as concise bullet points.";
         });
 
         // Wait for LLM to finish pruning
-        let rx = state.subscribe();
         existing_memories = loop {
             let _ = rx.recv();
             let s = state.read();
