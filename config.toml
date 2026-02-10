@@ -6,6 +6,8 @@ default_piper_model_path = "/path/to/your/piper/model.onnx"
 # LLM Configuration
 llm_threads = 16
 llm_context_size = 128000
+# if this is enabled, it will both show the words as they appear from the llm, and speak the audio in chunks
+enable_word_by_word_response = true
 # Optional: set a default assistant to skip the selection prompt
 default_assistant = "Jarvis"
 # If there is only one assistant present, it will be selected by default

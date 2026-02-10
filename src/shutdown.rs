@@ -20,24 +20,26 @@ pub fn save_conversation(state: StateHandle, conversation_file: &str) -> Result<
 
     let mut existing_memories = fs::read_to_string(conversation_file).unwrap_or_default();
 
-    let summary_prompt = "Summarize our conversation into a brief context block for future sessions. Include:
+    let summary_prompt = "Ignore all previous instructions and summarize this conversation into a brief context block for future sessions. Include:
 1. Key facts about the user (background, preferences)
 2. Ongoing discussions and topics of conversation
 
-Format as concise bullet points.";
+Format as concise bullet points. Include nothing else in your response.";
 
     state.update(|s| {
-        s.llm_command = Some(LlmCommand::DestroySystemPromptAndContinueConversation(summary_prompt.into()));
+        s.llm_command = Some(LlmCommand::ContinueConversation(summary_prompt.into()));
     });
 
     let rx = state.subscribe();
     let summary = loop {
         let _ = rx.recv();
         let s = state.read();
-        if s.llm_state == LlmState::AwaitingInput && s.llm_command.is_none()
-            && let Some((_, reply)) = s.conversation.last() {
-                break re.replace_all(&reply.clone(), "").trim().into();
-            }
+        if s.llm_state == LlmState::AwaitingInput
+            && s.llm_command.is_none()
+            && let Some((_, reply)) = s.conversation.last()
+        {
+            break re.replace_all(&reply.clone(), "").trim().into();
+        }
     };
 
     // If memories are too large, ask LLM to prune them
@@ -66,10 +68,12 @@ Format as concise bullet points.";
         existing_memories = loop {
             let _ = rx.recv();
             let s = state.read();
-            if s.llm_state == LlmState::AwaitingInput && s.llm_command.is_none()
-                && let Some((_, reply)) = s.conversation.last() {
-                    break re.replace_all(&reply.clone(), "").trim().into();
-                }
+            if s.llm_state == LlmState::AwaitingInput
+                && s.llm_command.is_none()
+                && let Some((_, reply)) = s.conversation.last()
+            {
+                break re.replace_all(&reply.clone(), "").trim().into();
+            }
         };
     }
 

@@ -1,4 +1,7 @@
-use std::{io::{self, Write}, thread::{self, JoinHandle}};
+use std::{
+    io::{self, Write},
+    thread::{self, JoinHandle},
+};
 
 use crossterm::terminal;
 use regex::Regex;
@@ -7,14 +10,22 @@ use crate::state::{LifeCycleState, LlmState, State, StateHandle};
 
 pub fn run_ui_loop(state: StateHandle, model_name: String) {
     let re = Regex::new(r"(<think>[\s\S]*?<\/think>)*").ok();
+    let mut previous_state = state.read();
 
-    while state.subscribe().recv().is_ok() {
+    loop {
         let s = state.read();
-        if s.life_cycle_state != LifeCycleState::Running {
+        if s == previous_state || s.life_cycle_state == LifeCycleState::Initializing {
+            continue;
+        }
+
+        previous_state = s.clone();
+
+        if s.life_cycle_state == LifeCycleState::ShuttingDown {
             break;
         }
 
         let _ = print_conversation(s, &re, &model_name);
+        std::thread::sleep(std::time::Duration::from_millis(8));
     }
 }
 
@@ -23,7 +34,6 @@ pub struct UiHandle {
 }
 
 pub fn spawn_ui_thread(state: StateHandle, model_name: String) -> UiHandle {
-
     let handle = thread::spawn(move || {
         run_ui_loop(state, model_name);
     });
@@ -102,30 +112,44 @@ fn print_conversation(state: State, re: &Option<Regex>, model_name: &String) -> 
     for (user, ai) in history {
         print!("\nYou: {}\n\n\r", user);
         if !ai.is_empty() {
-            if let Some(reg) = &re && state.is_hiding_think_tags {
-                print!("AI: {}\n\r", reg.replace_all(&ai.replace("\n", "\n\r"), "").trim());
+            if let Some(reg) = &re
+                && state.is_hiding_think_tags
+            {
+                print!(
+                    "AI: {}\n\r",
+                    reg.replace_all(&ai.replace("\n", "\n\r"), "").trim()
+                );
             } else {
                 print!("AI: {}\n\r", ai.replace("\n", "\n\r"));
             }
         }
     }
 
-   match state.llm_state {
+    match state.llm_state {
         LlmState::RunningInference => print!("---\n\rThinking...\n\r"),
         LlmState::RunningTts => print!("---\n\r"),
         LlmState::AwaitingInput => {
             if state.user_mute {
                 print!("---\n\r");
-            } else if state.is_only_responding_after_name && match state.time_since_name_was_said {None => true, Some(instant) => instant.elapsed().as_secs() > 5} {
+            } else if state.is_only_responding_after_name
+                && match state.time_since_name_was_said {
+                    None => true,
+                    Some(instant) => instant.elapsed().as_secs() > 5,
+                }
+            {
                 print!("---\n\rListening for {}...\r\n", model_name);
             } else {
                 print!("---\n\rListening...\n\r");
             }
-        },
+        }
     }
 
     if let Some((buffer, cursor_pos)) = state.text_input {
-        if state.llm_state != LlmState::RunningInference { show_cursor(); } else { hide_cursor(); }
+        if state.llm_state != LlmState::RunningInference {
+            show_cursor();
+        } else {
+            hide_cursor();
+        }
 
         let (width, _height) = terminal::size()?;
 

@@ -1,4 +1,6 @@
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, install_logging_hooks};
+use whisper_rs::{
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, install_logging_hooks,
+};
 
 pub struct Stt {
     ctx: WhisperContext,
@@ -7,7 +9,14 @@ pub struct Stt {
 impl Stt {
     pub fn new(path: &str) -> anyhow::Result<Self> {
         install_logging_hooks();
-        Ok(Self { ctx: WhisperContext::new_with_params(path, WhisperContextParameters {..Default::default()})? })
+        Ok(Self {
+            ctx: WhisperContext::new_with_params(
+                path,
+                WhisperContextParameters {
+                    ..Default::default()
+                },
+            )?,
+        })
     }
 
     pub fn transcribe(&self, audio: &[f32]) -> anyhow::Result<String> {

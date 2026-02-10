@@ -1,4 +1,7 @@
-use ringbuf::{HeapCons, traits::{Consumer, Observer}};
+use ringbuf::{
+    HeapCons,
+    traits::{Consumer, Observer},
+};
 use webrtc_vad::Vad;
 
 use crate::state::{LifeCycleState, StateHandle};
@@ -106,14 +109,10 @@ pub fn run_vad(
                     speaking = true;
                 }
 
-                utterance.extend(
-                    vad_frame.iter().map(|&s| s as f32 / i16::MAX as f32)
-                );
+                utterance.extend(vad_frame.iter().map(|&s| s as f32 / i16::MAX as f32));
             } else if speaking {
                 silence += 1;
-                utterance.extend(
-                    vad_frame.iter().map(|&s| s as f32 / i16::MAX as f32)
-                );
+                utterance.extend(vad_frame.iter().map(|&s| s as f32 / i16::MAX as f32));
 
                 if silence >= MAX_SILENCE {
                     if utterance.len() >= 16_000 {

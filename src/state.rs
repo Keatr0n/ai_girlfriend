@@ -1,4 +1,4 @@
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{Arc, RwLock, mpsc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LlmState {
@@ -20,10 +20,9 @@ pub enum LlmCommand {
     EditLastMessage(String),
     CancelInference,
     DestroyContextAndRunFromNothing(Vec<(String, String)>),
-    DestroySystemPromptAndContinueConversation(String),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct State {
     pub life_cycle_state: LifeCycleState,
     pub conversation: Vec<(String, String)>,
@@ -36,7 +35,7 @@ pub struct State {
     pub time_since_name_was_said: Option<std::time::Instant>,
     pub llm_command: Option<LlmCommand>,
     pub llm_state: LlmState,
-    pub tts_command: Option<String>,
+    pub tts_commands: Vec<String>,
 }
 
 impl Default for State {
@@ -53,7 +52,7 @@ impl Default for State {
             text_input: None,
             llm_command: None,
             llm_state: LlmState::AwaitingInput,
-            tts_command: None,
+            tts_commands: Vec::new(),
         }
     }
 }

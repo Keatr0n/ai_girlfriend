@@ -17,6 +17,7 @@ pub struct GlobalConfig {
     pub llm_context_size: u32,
     #[serde(default)]
     pub default_assistant: Option<String>,
+    pub enable_word_by_word_response: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -39,9 +40,9 @@ pub struct Config {
 
 impl Assistant {
     pub fn conversation_file(&self) -> String {
-        self.conversation_file
-            .clone()
-            .unwrap_or_else(|| format!("{}_history.txt", self.name.to_lowercase().replace(' ', "_")))
+        self.conversation_file.clone().unwrap_or_else(|| {
+            format!("{}_history.txt", self.name.to_lowercase().replace(' ', "_"))
+        })
     }
 }
 
@@ -62,10 +63,11 @@ pub fn select_assistant(config: &Config) -> anyhow::Result<Assistant> {
     }
 
     // Check for default
-    if let Some(default_name) = &config.global.default_assistant &&
-        let Some(assistant) = config.assistant.iter().find(|a| &a.name == default_name) {
-            ui::assistant_selected(&assistant.name);
-            return Ok(assistant.clone());
+    if let Some(default_name) = &config.global.default_assistant
+        && let Some(assistant) = config.assistant.iter().find(|a| &a.name == default_name)
+    {
+        ui::assistant_selected(&assistant.name);
+        return Ok(assistant.clone());
     }
 
     // Interactive selection
