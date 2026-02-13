@@ -213,6 +213,17 @@ fn run_llm_loop(
                 Some(ctx.kv_cache_seq_pos_max(0) as u32),
             );
             exchange_checkpoints.pop();
+
+            state.update(|s| {
+                if let Some((_, _)) = s.conversation.pop() {
+                    if s.is_only_responding_after_name {
+                        s.time_since_name_was_said = Some(Instant::now());
+                    }
+
+                    s.llm_state = LlmState::AwaitingInput;
+                }
+            });
+
             continue;
         }
 
