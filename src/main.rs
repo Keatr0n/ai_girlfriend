@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
     let conversation_file = selected.conversation_file();
 
     let mut system_prompt = format!(
-        "Your name is {}. {}. Here is a summary of previous interactions with the user: ",
+        "Your name is {}. {}. Here is a summary of previous interactions with the user:\n",
         selected.name.clone(),
         selected.system_prompt.clone()
     );
@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
         llm_context_size,
         config.global.enable_word_by_word_response,
         system_prompt,
-        config.global.tool_path,
+        selected.tool_path.or(config.global.tool_path),
     );
     let _ = tts::spawn_tts_thread(state_for_tts, piper_model_path);
 

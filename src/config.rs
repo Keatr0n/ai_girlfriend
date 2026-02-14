@@ -31,6 +31,8 @@ pub struct Assistant {
     pub piper_model_path: Option<String>,
     #[serde(default)]
     pub conversation_file: Option<String>,
+    #[serde(default)]
+    pub tool_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

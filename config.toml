@@ -22,3 +22,4 @@ system_prompt = "You are an AI assistant. Keep your responses short and helpful.
 # llm_model_path = "/path/to/model.gguf"  # Override the default from .env
 # piper_model_path = "/path/to/model.onnx"  # Override the default from .env
 # conversation_file = "Jarvis_history.txt"  # Defaults to {name}_history.txt
+# tool_path = "/path/to/your/tools.py"

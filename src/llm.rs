@@ -20,6 +20,8 @@ use crate::tools::{
 use crate::ui;
 use rand::RngCore;
 
+const BATCH_SIZE: i32 = 2048;
+
 pub struct LlmHandle {
     _handle: JoinHandle<()>,
 }
@@ -77,7 +79,7 @@ fn run_llm_loop(
 
     let _chat_template = model.chat_template(None).unwrap();
 
-    let mut batch = LlamaBatch::new(4096, 1);
+    let mut batch = LlamaBatch::new(BATCH_SIZE as usize, 1);
 
     let prompt = if supports_tools(_chat_template.to_str()?)
         && let Some(tool_directory) = tool_directory.clone()
@@ -86,7 +88,7 @@ fn run_llm_loop(
             .to_json()
             .unwrap_or_default();
 
-        let proopt = model.apply_chat_template_with_tools_oaicompat(
+        let proompt = model.apply_chat_template_with_tools_oaicompat(
             &_chat_template,
             &[LlamaChatMessage::new("system".into(), system_prompt.clone()).unwrap()],
             Some(&tools_str),
@@ -94,38 +96,40 @@ fn run_llm_loop(
             false,
         );
 
-        // println!("{:?}\n\r{:?}\n\r{:?}", tools_str, tool_directory, proopt);
+        // println!("{:?}\n\r{:?}\n\r{:?}", tools_str, tool_directory, proompt);
 
-        match proopt {
-            Ok(data) => data,
-            Err(_) => model.apply_chat_template_with_tools_oaicompat(
+        match proompt {
+            Ok(data) => data.prompt,
+            Err(_) => model.apply_chat_template(
                 &_chat_template,
                 &[LlamaChatMessage::new("system".into(), system_prompt).unwrap()],
-                None,
-                None,
                 false,
             )?,
         }
     } else {
-        model.apply_chat_template_with_tools_oaicompat(
+        model.apply_chat_template(
             &_chat_template,
             &[LlamaChatMessage::new("system".into(), system_prompt).unwrap()],
-            None,
-            None,
             false,
         )?
     };
 
-    let system_tokens = model.str_to_token(&prompt.prompt, AddBos::Always).unwrap();
+    let system_tokens = model.str_to_token(&prompt, AddBos::Always).unwrap();
 
     for (i, token) in system_tokens.iter().enumerate() {
-        let is_last = i == system_tokens.len() - 1;
+        if batch.n_tokens() >= BATCH_SIZE {
+            ctx.decode(&mut batch).unwrap();
+            batch.clear();
+        }
+        let is_last = i == system_tokens.len() - 1 && batch.n_tokens() < BATCH_SIZE - 1;
         batch.add(*token, i as i32, &[0], is_last).unwrap();
     }
 
     ui::status_llm_context_init();
 
-    ctx.decode(&mut batch).unwrap();
+    if batch.n_tokens() > 0 {
+        ctx.decode(&mut batch).unwrap();
+    }
 
     let system_token_len = system_tokens.len() as i32;
     let mut n_past = system_token_len;
@@ -187,11 +191,17 @@ fn run_llm_loop(
         batch.clear();
 
         for (i, token) in user_tokens.iter().enumerate() {
+            if batch.n_tokens() >= BATCH_SIZE {
+                ctx.decode(&mut batch).unwrap();
+                batch.clear();
+            }
             let is_last = i == user_tokens.len() - 1;
             batch.add(*token, n_past + i as i32, &[0], is_last).unwrap();
         }
 
-        ctx.decode(&mut batch).unwrap();
+        if batch.n_tokens() > 0 {
+            ctx.decode(&mut batch).unwrap();
+        }
         n_past += user_tokens.len() as i32;
 
         let mut rng = rand::rng();
@@ -259,11 +269,17 @@ fn run_llm_loop(
                     batch.clear();
 
                     for (i, token) in tool_tokens.iter().enumerate() {
+                        if batch.n_tokens() >= BATCH_SIZE {
+                            ctx.decode(&mut batch).unwrap();
+                            batch.clear();
+                        }
                         let is_last = i == tool_tokens.len() - 1;
                         batch.add(*token, n_past + i as i32, &[0], is_last).unwrap();
                     }
 
-                    ctx.decode(&mut batch).unwrap();
+                    if batch.n_tokens() > 0 {
+                        ctx.decode(&mut batch).unwrap();
+                    }
                     n_past += tool_tokens.len() as i32;
 
                     reply.clear();
@@ -339,6 +355,7 @@ fn run_llm_loop(
                         s.tts_commands.push(reply);
                     } else {
                         s.llm_state = LlmState::AwaitingInput;
+                        s.system_mute = false
                     }
                 } else {
                     s.llm_state = LlmState::AwaitingInput;
