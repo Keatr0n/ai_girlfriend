@@ -279,6 +279,7 @@ fn run_llm_loop(
                 if enable_word_by_word_response {
                     if t.contains("</") {
                         is_thinking = false;
+                        last_message_chunk_index = 0;
                     } else if t.contains("<") {
                         is_thinking = true;
                     }
