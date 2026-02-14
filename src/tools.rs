@@ -8,6 +8,7 @@ pub enum ToolFormat {
     PythonCall,
     Functools,
     ToolCallTags,
+    ToolCallXml,
 }
 
 #[derive(Debug, Clone)]
@@ -21,11 +22,26 @@ pub struct Tool {
 impl Tool {
     pub fn to_json(&self) -> serde_json::Value {
         let mut props = serde_json::Map::new();
+
+        let parse_type = |t: &str| -> String {
+            match t {
+                "str" => "string".into(),
+                "int" => "integer".into(),
+                "float" => "number".into(),
+                "bool" => "boolean".into(),
+                "list" => "array".into(),
+                "dict" => "object".into(),
+                "None" => "null".into(),
+                "null" => "null".into(),
+                v => v.into(),
+            }
+        };
+
         for (name, (prop_type, desc)) in &self.properties {
             props.insert(
                 name.clone(),
                 serde_json::json!({
-                    "type": prop_type,
+                    "type": parse_type(prop_type),
                     "description": desc
                 }),
             );
@@ -58,11 +74,18 @@ impl ToJson for Vec<Tool> {
 }
 
 pub fn run_tool(tool_file_path: &str, command: &str) -> anyhow::Result<String> {
+    let mut segments: Vec<&str> = tool_file_path.split("/").collect();
+    let file = segments.pop().unwrap_or_default();
+
     let command = Command::new("python")
-        .current_dir(tool_file_path)
+        .current_dir(segments.join("/"))
         .args([
             "-c",
-            &format!("\"from tools import *; print({})\"", command),
+            &format!(
+                "from {} import *; print({})",
+                file.strip_suffix(".py").unwrap_or("tools"),
+                command
+            ),
         ])
         .output()?;
 
@@ -138,6 +161,32 @@ pub fn parse_tool_call(text: &str, format: ToolFormat) -> Option<String> {
                 })
             })
         }
+
+        ToolFormat::ToolCallXml => {
+            // <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+            trimmed.find("<tool_call>").and_then(|start| {
+                let json_start = start + 11; // length of "<tool_call>"
+                trimmed.find("</tool_call>").and_then(|end| {
+                    let json_str = trimmed[json_start..end].trim();
+                    serde_json::from_str::<serde_json::Value>(json_str)
+                        .ok()
+                        .and_then(|json| {
+                            let name = json.get("name")?.as_str()?;
+                            let params = json.get("arguments")?.as_object()?;
+
+                            let args = params
+                                .iter()
+                                .map(|(k, v)| {
+                                    format!("{}={}", k, serde_json::to_string(v).unwrap())
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+
+                            Some(format!("{}({})", name, args))
+                        })
+                })
+            })
+        }
     }
 }
 
@@ -147,6 +196,7 @@ pub fn supports_tools(chat_template: &str) -> bool {
         || chat_template.contains("tools is not")
         || chat_template.contains("tool is not")
         || chat_template.contains("function")
+        || chat_template.contains("<tool_call>")
 }
 
 // // Detect tool call format from template
@@ -205,7 +255,45 @@ pub fn try_parse_tool_call(text: &str) -> Option<(ToolFormat, String)> {
     if let Some(cmd) = parse_tool_call(text, ToolFormat::ToolCallTags) {
         return Some((ToolFormat::ToolCallTags, cmd));
     }
+    if let Some(cmd) = parse_tool_call(text, ToolFormat::ToolCallXml) {
+        return Some((ToolFormat::ToolCallXml, cmd));
+    }
     None
+}
+
+/// Splits multiple tool calls (e.g., "func1(), func2(arg=1)") into individual calls
+pub fn split_tool_calls(calls: &str) -> Vec<String> {
+    let mut results = Vec::new();
+    let mut current = String::new();
+    let mut paren_depth = 0;
+
+    for ch in calls.chars() {
+        match ch {
+            '(' => {
+                paren_depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                paren_depth -= 1;
+                current.push(ch);
+            }
+            ',' if paren_depth == 0 => {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    results.push(trimmed);
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        results.push(trimmed);
+    }
+
+    results
 }
 
 fn parse_arguments(args_str: &str) -> (HashMap<String, (String, String)>, Vec<String>) {

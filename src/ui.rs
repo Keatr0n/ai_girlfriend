@@ -73,7 +73,7 @@ pub fn status_llm_loaded() {
 }
 
 pub fn status_llm_context_init() {
-    status("LLM context initializing...");
+    status("\x1b[1A\r\x1b[2KLLM context initializing...");
 }
 
 pub fn status_stt_online() {

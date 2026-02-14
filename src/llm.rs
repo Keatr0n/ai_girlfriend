@@ -14,7 +14,9 @@ use regex::Regex;
 
 use crate::state::StateHandle;
 use crate::state::{LifeCycleState, LlmCommand, LlmState};
-use crate::tools::{ToJson, parse_python_functions, run_tool, supports_tools, try_parse_tool_call};
+use crate::tools::{
+    ToJson, parse_python_functions, run_tool, split_tool_calls, supports_tools, try_parse_tool_call,
+};
 use crate::ui;
 use rand::RngCore;
 
@@ -80,7 +82,7 @@ fn run_llm_loop(
     let prompt = if supports_tools(_chat_template.to_str()?)
         && let Some(tool_directory) = tool_directory.clone()
     {
-        let tools_str = parse_python_functions(tool_directory)
+        let tools_str = parse_python_functions(tool_directory.clone())
             .to_json()
             .unwrap_or_default();
 
@@ -91,6 +93,8 @@ fn run_llm_loop(
             None,
             false,
         );
+
+        // println!("{:?}\n\r{:?}\n\r{:?}", tools_str, tool_directory, proopt);
 
         match proopt {
             Ok(data) => data,
@@ -198,6 +202,7 @@ fn run_llm_loop(
         let mut decoder = encoding_rs::UTF_8.new_decoder();
 
         let mut interrupted = false;
+        let mut is_thinking = false;
 
         loop {
             // Check for interrupt event
@@ -210,17 +215,79 @@ fn run_llm_loop(
             sampler.accept(token);
 
             if model.is_eog_token(token) {
-                break;
+                if let Some(ref tool_dir) = tool_directory
+                    && let Some((_format, tool_command)) = try_parse_tool_call(&reply)
+                {
+                    if enable_word_by_word_response {
+                        state.update(|s| {
+                            if let Some((user, _)) = s.conversation.pop() {
+                                s.conversation.push((user, "Calling tools...".into()));
+                            }
+                        });
+                    }
+
+                    let tool_calls = split_tool_calls(&tool_command);
+
+                    // Add tool result as a message and continue inference
+                    let mut tool_response_messages =
+                        vec![LlamaChatMessage::new("assistant".into(), reply.clone()).unwrap()];
+
+                    for call in &tool_calls {
+                        match run_tool(tool_dir, call) {
+                            Ok(result) => {
+                                tool_response_messages.push(
+                                    LlamaChatMessage::new("tool".into(), result.clone()).unwrap(),
+                                );
+                            }
+                            Err(e) => {
+                                tool_response_messages.push(
+                                    LlamaChatMessage::new("tool".into(), format!("Error: {:?}", e))
+                                        .unwrap(),
+                                );
+                            }
+                        }
+                    }
+
+                    let tool_chat = model
+                        .apply_chat_template(
+                            &_chat_template,
+                            tool_response_messages.as_slice(),
+                            true,
+                        )
+                        .unwrap();
+                    let tool_tokens = model.str_to_token(&tool_chat, AddBos::Never).unwrap();
+                    batch.clear();
+
+                    for (i, token) in tool_tokens.iter().enumerate() {
+                        let is_last = i == tool_tokens.len() - 1;
+                        batch.add(*token, n_past + i as i32, &[0], is_last).unwrap();
+                    }
+
+                    ctx.decode(&mut batch).unwrap();
+                    n_past += tool_tokens.len() as i32;
+
+                    reply.clear();
+
+                    continue;
+                } else {
+                    break;
+                }
             }
 
             if let Ok(t) = model.token_to_piece(token, &mut decoder, true, None) {
                 reply.push_str(&t);
                 if enable_word_by_word_response {
+                    if t.contains("</") {
+                        is_thinking = false;
+                    } else if t.contains("<") {
+                        is_thinking = true;
+                    }
+
                     state.update(|s| {
                         if let Some((user, _)) = s.conversation.pop() {
                             s.conversation.push((user, reply.clone()));
                         }
-                        if end_sentence.is_match(&t) {
+                        if end_sentence.is_match(&t) && !is_thinking {
                             let sentence = &reply[last_message_chunk_index..];
                             last_message_chunk_index = reply.len();
                             s.tts_commands.push(sentence.into());
@@ -257,85 +324,6 @@ fn run_llm_loop(
             continue;
         }
 
-        // Check for tool calls and execute them
-        if let Some(ref tool_dir) = tool_directory
-            && let Some((_format, tool_command)) = try_parse_tool_call(&reply)
-        {
-            match run_tool(tool_dir, &tool_command) {
-                Ok(tool_result) => {
-                    // Add tool result as a message and continue inference
-                    let tool_response_messages = vec![
-                        LlamaChatMessage::new("assistant".into(), reply.clone()).unwrap(),
-                        LlamaChatMessage::new("tool".into(), tool_result.clone()).unwrap(),
-                    ];
-
-                    let tool_chat = model
-                        .apply_chat_template(
-                            &_chat_template,
-                            tool_response_messages.as_slice(),
-                            true,
-                        )
-                        .unwrap();
-                    let tool_tokens = model.str_to_token(&tool_chat, AddBos::Never).unwrap();
-                    batch.clear();
-
-                    for (i, token) in tool_tokens.iter().enumerate() {
-                        let is_last = i == tool_tokens.len() - 1;
-                        batch.add(*token, n_past + i as i32, &[0], is_last).unwrap();
-                    }
-
-                    ctx.decode(&mut batch).unwrap();
-                    n_past += tool_tokens.len() as i32;
-
-                    // Generate follow-up response
-                    let mut follow_up = String::new();
-                    let mut decoder = encoding_rs::UTF_8.new_decoder();
-                    let mut sampler =
-                        LlamaSampler::chain_simple([LlamaSampler::dist(rng.next_u32())]);
-
-                    loop {
-                        if state.read().llm_command == Some(LlmCommand::CancelInference) {
-                            break;
-                        }
-
-                        let token = sampler.sample(&ctx, batch.n_tokens() - 1);
-                        sampler.accept(token);
-
-                        if model.is_eog_token(token) {
-                            break;
-                        }
-
-                        if let Ok(t) = model.token_to_piece(token, &mut decoder, true, None) {
-                            follow_up.push_str(&t);
-                            if enable_word_by_word_response {
-                                state.update(|s| {
-                                    if let Some((user, _)) = s.conversation.pop() {
-                                        s.conversation.push((user, follow_up.clone()));
-                                    }
-                                    if end_sentence.is_match(&t) {
-                                        let sentence = &follow_up[last_message_chunk_index..];
-                                        last_message_chunk_index = follow_up.len();
-                                        s.tts_commands.push(sentence.into());
-                                    }
-                                });
-                            }
-                        }
-
-                        batch.clear();
-                        batch.add(token, n_past, &[0], true).unwrap();
-                        ctx.decode(&mut batch).unwrap();
-                        n_past += 1;
-                    }
-
-                    // Use follow-up as the final reply
-                    reply = follow_up;
-                }
-                Err(e) => {
-                    println!("Tool execution failed: {:?}\r", e);
-                }
-            }
-        }
-
         state.update(|s| {
             if let Some((user, _)) = s.conversation.pop() {
                 s.conversation.push((user, reply.clone()));
@@ -345,9 +333,8 @@ fn run_llm_loop(
                 }
 
                 if s.life_cycle_state != LifeCycleState::ShuttingDown {
-                    s.llm_state = LlmState::RunningTts;
-
                     if !enable_word_by_word_response {
+                        s.llm_state = LlmState::RunningTts;
                         s.tts_commands.push(reply);
                     }
                 } else {
@@ -356,6 +343,5 @@ fn run_llm_loop(
             }
         });
     }
-
     Ok(())
 }
