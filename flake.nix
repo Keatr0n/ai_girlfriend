@@ -22,6 +22,7 @@
         pkgs.alsa-lib
         pkgs.pipewire
         pkgs.libpulseaudio
+        pkgs.python3
         # pkgs.rocmPackages.clr
 
         pkgs.ffmpeg

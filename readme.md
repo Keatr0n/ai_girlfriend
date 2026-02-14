@@ -58,4 +58,6 @@ Before you start, you'll need to fill in the `config.toml`
 
 Under `[global]` you'll find all your standard things, like model locations and llm config stuff.
 
+There is also a rudimentary tool support. If you supply a tool_path that points to a python file, it can use any top level function in that file when required. (Some version of python must be installed for this)
+
 And under `[[assistant]]` you can set up and customize your many girlfrie... I mean assistants. There is an example one included so you know what options you have, but the only things that are required are a name and system prompt.

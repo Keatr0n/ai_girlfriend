@@ -14,6 +14,7 @@ use regex::Regex;
 
 use crate::state::StateHandle;
 use crate::state::{LifeCycleState, LlmCommand, LlmState};
+use crate::tools::{ToJson, parse_python_functions, run_tool, supports_tools, try_parse_tool_call};
 use crate::ui;
 use rand::RngCore;
 
@@ -28,6 +29,7 @@ pub fn spawn_llm_thread(
     llm_context_size: u32,
     enable_word_by_word_response: bool,
     system_prompt: String,
+    tool_directory: Option<String>,
 ) -> LlmHandle {
     let handle = thread::spawn(move || {
         let _ = run_llm_loop(
@@ -37,6 +39,7 @@ pub fn spawn_llm_thread(
             llm_context_size,
             enable_word_by_word_response,
             system_prompt,
+            tool_directory,
         );
     });
 
@@ -50,6 +53,7 @@ fn run_llm_loop(
     llm_context_size: u32,
     enable_word_by_word_response: bool,
     system_prompt: String,
+    tool_directory: Option<String>,
 ) -> anyhow::Result<()> {
     let mut backend = Box::new(LlamaBackend::init()?);
     let end_sentence = Regex::new(r"[.?;:]")?;
@@ -71,18 +75,44 @@ fn run_llm_loop(
 
     let _chat_template = model.chat_template(None).unwrap();
 
-    let formatted_system_prompt = model
-        .apply_chat_template(
+    let mut batch = LlamaBatch::new(4096, 1);
+
+    let prompt = if supports_tools(_chat_template.to_str()?)
+        && let Some(tool_directory) = tool_directory.clone()
+    {
+        let tools_str = parse_python_functions(tool_directory)
+            .to_json()
+            .unwrap_or_default();
+
+        let proopt = model.apply_chat_template_with_tools_oaicompat(
+            &_chat_template,
+            &[LlamaChatMessage::new("system".into(), system_prompt.clone()).unwrap()],
+            Some(&tools_str),
+            None,
+            false,
+        );
+
+        match proopt {
+            Ok(data) => data,
+            Err(_) => model.apply_chat_template_with_tools_oaicompat(
+                &_chat_template,
+                &[LlamaChatMessage::new("system".into(), system_prompt).unwrap()],
+                None,
+                None,
+                false,
+            )?,
+        }
+    } else {
+        model.apply_chat_template_with_tools_oaicompat(
             &_chat_template,
             &[LlamaChatMessage::new("system".into(), system_prompt).unwrap()],
+            None,
+            None,
             false,
-        )
-        .unwrap();
+        )?
+    };
 
-    let system_tokens = model
-        .str_to_token(&formatted_system_prompt, AddBos::Always)
-        .unwrap();
-    let mut batch = LlamaBatch::new(4096, 1);
+    let system_tokens = model.str_to_token(&prompt.prompt, AddBos::Always).unwrap();
 
     for (i, token) in system_tokens.iter().enumerate() {
         let is_last = i == system_tokens.len() - 1;
@@ -225,6 +255,85 @@ fn run_llm_loop(
             });
 
             continue;
+        }
+
+        // Check for tool calls and execute them
+        if let Some(ref tool_dir) = tool_directory
+            && let Some((_format, tool_command)) = try_parse_tool_call(&reply)
+        {
+            match run_tool(tool_dir, &tool_command) {
+                Ok(tool_result) => {
+                    // Add tool result as a message and continue inference
+                    let tool_response_messages = vec![
+                        LlamaChatMessage::new("assistant".into(), reply.clone()).unwrap(),
+                        LlamaChatMessage::new("tool".into(), tool_result.clone()).unwrap(),
+                    ];
+
+                    let tool_chat = model
+                        .apply_chat_template(
+                            &_chat_template,
+                            tool_response_messages.as_slice(),
+                            true,
+                        )
+                        .unwrap();
+                    let tool_tokens = model.str_to_token(&tool_chat, AddBos::Never).unwrap();
+                    batch.clear();
+
+                    for (i, token) in tool_tokens.iter().enumerate() {
+                        let is_last = i == tool_tokens.len() - 1;
+                        batch.add(*token, n_past + i as i32, &[0], is_last).unwrap();
+                    }
+
+                    ctx.decode(&mut batch).unwrap();
+                    n_past += tool_tokens.len() as i32;
+
+                    // Generate follow-up response
+                    let mut follow_up = String::new();
+                    let mut decoder = encoding_rs::UTF_8.new_decoder();
+                    let mut sampler =
+                        LlamaSampler::chain_simple([LlamaSampler::dist(rng.next_u32())]);
+
+                    loop {
+                        if state.read().llm_command == Some(LlmCommand::CancelInference) {
+                            break;
+                        }
+
+                        let token = sampler.sample(&ctx, batch.n_tokens() - 1);
+                        sampler.accept(token);
+
+                        if model.is_eog_token(token) {
+                            break;
+                        }
+
+                        if let Ok(t) = model.token_to_piece(token, &mut decoder, true, None) {
+                            follow_up.push_str(&t);
+                            if enable_word_by_word_response {
+                                state.update(|s| {
+                                    if let Some((user, _)) = s.conversation.pop() {
+                                        s.conversation.push((user, follow_up.clone()));
+                                    }
+                                    if end_sentence.is_match(&t) {
+                                        let sentence = &follow_up[last_message_chunk_index..];
+                                        last_message_chunk_index = follow_up.len();
+                                        s.tts_commands.push(sentence.into());
+                                    }
+                                });
+                            }
+                        }
+
+                        batch.clear();
+                        batch.add(token, n_past, &[0], true).unwrap();
+                        ctx.decode(&mut batch).unwrap();
+                        n_past += 1;
+                    }
+
+                    // Use follow-up as the final reply
+                    reply = follow_up;
+                }
+                Err(e) => {
+                    println!("Tool execution failed: {:?}\r", e);
+                }
+            }
         }
 
         state.update(|s| {

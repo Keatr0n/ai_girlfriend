@@ -3,3 +3,4 @@ out.wav
 utterance.wav
 .env
 jarvis_history.txt
+__pycache__

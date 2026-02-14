@@ -3,6 +3,9 @@ whisper_model_path = "/path/to/your/whisper/model.bin"
 # Only used when assistant doesn't have llm / piper models set
 default_llm_model_path = "/path/to/your/llm/model.gguf"
 default_piper_model_path = "/path/to/your/piper/model.onnx"
+# Optional tool file path. The llm can use this to run any top level function found in the .py file.
+# An example is in this repo
+tool_path = "/path/to/your/tools.py"
 # LLM Configuration
 llm_threads = 16
 llm_context_size = 128000

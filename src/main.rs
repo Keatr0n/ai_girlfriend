@@ -7,6 +7,7 @@ mod stt;
 mod tts;
 // llm needs to be below stt
 mod llm;
+mod tools;
 mod ui;
 mod vad;
 
@@ -83,6 +84,7 @@ fn main() -> anyhow::Result<()> {
         llm_context_size,
         config.global.enable_word_by_word_response,
         system_prompt,
+        config.global.tool_path,
     );
     let _ = tts::spawn_tts_thread(state_for_tts, piper_model_path);
 
