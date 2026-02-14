@@ -337,6 +337,8 @@ fn run_llm_loop(
                     if !enable_word_by_word_response {
                         s.llm_state = LlmState::RunningTts;
                         s.tts_commands.push(reply);
+                    } else {
+                        s.llm_state = LlmState::AwaitingInput;
                     }
                 } else {
                     s.llm_state = LlmState::AwaitingInput;
