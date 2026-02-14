@@ -236,12 +236,12 @@ fn run_llm_loop(
                         match run_tool(tool_dir, call) {
                             Ok(result) => {
                                 tool_response_messages.push(
-                                    LlamaChatMessage::new("tool".into(), result.clone()).unwrap(),
+                                    LlamaChatMessage::new("user".into(), result.clone()).unwrap(),
                                 );
                             }
                             Err(e) => {
                                 tool_response_messages.push(
-                                    LlamaChatMessage::new("tool".into(), format!("Error: {:?}", e))
+                                    LlamaChatMessage::new("user".into(), format!("Error: {:?}", e))
                                         .unwrap(),
                                 );
                             }
