@@ -7,7 +7,10 @@ use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
     llama_batch::LlamaBatch,
-    model::{AddBos, LlamaChatMessage, LlamaModel, params},
+    model::{
+        AddBos, LlamaChatMessage, LlamaModel,
+        params::{self},
+    },
     sampling::LlamaSampler,
 };
 use regex::Regex;
@@ -64,12 +67,9 @@ fn run_llm_loop(
     backend.void_logs();
 
     ui::status_llm_loaded();
+    let params = params::LlamaModelParams::default().with_n_gpu_layers(99);
 
-    let model = Box::new(LlamaModel::load_from_file(
-        &backend,
-        &path,
-        &params::LlamaModelParams::default(),
-    )?);
+    let model = Box::new(LlamaModel::load_from_file(&backend, &path, &params)?);
 
     let context_params = LlamaContextParams::default()
         .with_n_threads(llm_threads)
