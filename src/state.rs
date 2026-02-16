@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock, mpsc};
+use std::sync::{mpsc, Arc, RwLock};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LlmState {

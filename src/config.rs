@@ -19,6 +19,8 @@ pub struct GlobalConfig {
     pub default_assistant: Option<String>,
     pub enable_word_by_word_response: bool,
     pub tool_path: Option<String>,
+    #[serde(default)]
+    pub orb_mode: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]

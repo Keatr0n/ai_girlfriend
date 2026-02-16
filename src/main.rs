@@ -1,6 +1,7 @@
 mod audio;
 mod config;
 mod input;
+mod orb;
 mod shutdown;
 mod state;
 mod stt;
@@ -76,7 +77,16 @@ fn main() -> anyhow::Result<()> {
     let state_for_vad = state.clone();
 
     let _ = input::spawn_input_thread(state_for_input);
-    let _ = ui::spawn_ui_thread(state_for_ui, selected.name.clone());
+
+    let _ = if config.global.orb_mode {
+        (Some(orb::spawn_orb_thread(state_for_ui)), None)
+    } else {
+        (
+            None,
+            Some(ui::spawn_ui_thread(state_for_ui, selected.name.clone())),
+        )
+    };
+
     let _ = llm::spawn_llm_thread(
         state_for_llm,
         llm_model_path,

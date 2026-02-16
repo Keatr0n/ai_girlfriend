@@ -9,7 +9,9 @@ tool_path = "/path/to/your/tools.py"
 # LLM Configuration
 llm_threads = 16
 llm_context_size = 128000
-# if this is enabled, it will both show the words as they appear from the llm, and speak the audio in chunks
+# If this is true, the only ui that will be shown is **THE ORB** (recommended to turn enable_word_by_word_response off if you are using **THE ORB**)
+orb_mode = false
+# If this is enabled, it will both show the words as they appear from the llm, and speak the audio in chunks
 enable_word_by_word_response = true
 # Optional: set a default assistant to skip the selection prompt
 default_assistant = "Jarvis"
