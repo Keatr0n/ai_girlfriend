@@ -3,12 +3,13 @@ use crossterm::{
     style::{Color, Print, SetForegroundColor},
     terminal,
 };
+use rand::Rng;
 use std::io::{Write, stdout};
 use std::thread;
 use std::time::Duration;
 use std::{f32::consts::PI, thread::JoinHandle};
 
-use crate::state::{LifeCycleState, StateHandle};
+use crate::state::{LifeCycleState, LlmState, StateHandle};
 
 const FPS: u64 = 30;
 
@@ -69,7 +70,15 @@ fn rotate(p: &Point3D, rx: f32, ry: f32, rz: f32) -> Point3D {
     }
 }
 
-fn get_color(z: f32, intensity: f32) -> Color {
+fn get_color(z: f32, intensity: f32, is_running: bool) -> Color {
+    if !is_running {
+        return Color::Rgb {
+            r: 90,
+            g: 90,
+            b: 90,
+        };
+    }
+
     let z_norm = (z + 2.0) / 4.0;
 
     if z_norm < 0.4 {
@@ -110,8 +119,16 @@ fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
 
     let particles = create_particles();
     let mut frame = 0.0;
+    let mut speaking_modifier = 1.0_f32;
+    let mut rng = rand::rng();
 
     loop {
+        let current_state = state.read();
+
+        if current_state.life_cycle_state == LifeCycleState::ShuttingDown {
+            break;
+        }
+
         let (width, height) = {
             let (_width, _height) = terminal::size()?;
             (_width as usize, _height as usize)
@@ -121,7 +138,20 @@ fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
         let mut z_buffer = vec![f32::NEG_INFINITY; width * height];
 
         // Morph factor
-        let pulse = (frame * 0.05_f32).sin() * 0.3 + 1.0;
+        let pulse = if current_state.llm_state == LlmState::RunningTts {
+            speaking_modifier += rng.random_range(-0.3..0.3);
+
+            if speaking_modifier > 1.5 {
+                speaking_modifier -= rng.random_range(0.1..0.5);
+            } else if speaking_modifier < -0.2 {
+                speaking_modifier += rng.random_range(0.1..0.5);
+            }
+
+            speaking_modifier
+        } else {
+            (frame * 0.05_f32).sin()
+        } * 0.3
+            + 1.0;
 
         // Rotation angles
         let rx = frame * 0.01;
@@ -164,7 +194,11 @@ fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
                 if c != ' ' {
                     let z = z_buffer[idx];
                     let intensity = ((z + 2.0) / 4.0).clamp(0.0, 1.0);
-                    let color = get_color(z, intensity);
+                    let color = get_color(
+                        z,
+                        intensity,
+                        current_state.life_cycle_state == LifeCycleState::Running,
+                    );
                     execute!(stdout, SetForegroundColor(color), Print(c))?;
                 } else {
                     execute!(stdout, Print(' '))?;
@@ -174,13 +208,11 @@ fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
 
         stdout.flush()?;
 
-        frame += 1.0;
-        thread::sleep(Duration::from_millis(1000 / FPS));
-
-        // Check for exit (ESC key)
-        if state.read().life_cycle_state == LifeCycleState::ShuttingDown {
-            break;
+        if current_state.life_cycle_state == LifeCycleState::Running {
+            frame += 1.0;
         }
+
+        thread::sleep(Duration::from_millis(1000 / FPS));
     }
 
     execute!(stdout, cursor::Show, terminal::LeaveAlternateScreen)?;

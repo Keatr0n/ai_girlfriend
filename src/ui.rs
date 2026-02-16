@@ -127,7 +127,7 @@ fn print_conversation(state: State, re: &Option<Regex>, model_name: &String) -> 
 
     match state.llm_state {
         LlmState::RunningInference => print!("---\n\rThinking...\n\r"),
-        LlmState::RunningTts => print!("---\n\r"),
+        LlmState::RunningTts | LlmState::InitializingTts => print!("---\n\r"),
         LlmState::AwaitingInput => {
             if state.user_mute {
                 print!("---\n\r");

@@ -351,7 +351,7 @@ fn run_llm_loop(
 
                 if s.life_cycle_state != LifeCycleState::ShuttingDown {
                     if !enable_word_by_word_response {
-                        s.llm_state = LlmState::RunningTts;
+                        s.llm_state = LlmState::InitializingTts;
                         s.tts_commands.push(reply);
                     } else {
                         s.llm_state = LlmState::AwaitingInput;

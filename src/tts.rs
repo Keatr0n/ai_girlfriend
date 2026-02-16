@@ -51,6 +51,10 @@ fn run_tts_loop(state: StateHandle, model_path: String) -> anyhow::Result<()> {
                     .spawn()?
                     .wait()?;
 
+                state.update(|s| {
+                    s.llm_state = LlmState::RunningTts;
+                });
+
                 // Play the audio
                 Command::new("ffplay")
                     .args(["-nodisp", "-autoexit", "out.wav"])

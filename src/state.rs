@@ -1,9 +1,10 @@
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{Arc, RwLock, mpsc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LlmState {
     RunningInference,
     AwaitingInput,
+    InitializingTts,
     RunningTts,
 }
 
