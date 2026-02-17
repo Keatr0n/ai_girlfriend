@@ -114,6 +114,14 @@ fn run_llm_loop(
         )?
     };
 
+    let tool_result_role = if _chat_template.to_str()?.contains("role == \"tool\"") {
+        "tool"
+    } else if _chat_template.to_str()?.contains("role == \"function\"") {
+        "function"
+    } else {
+        "user" // fallback for older templates
+    };
+
     let system_tokens = model.str_to_token(&prompt, AddBos::Always).unwrap();
 
     for (i, token) in system_tokens.iter().enumerate() {
@@ -246,13 +254,17 @@ fn run_llm_loop(
                         match run_tool(tool_dir, call) {
                             Ok(result) => {
                                 tool_response_messages.push(
-                                    LlamaChatMessage::new("user".into(), result.clone()).unwrap(),
+                                    LlamaChatMessage::new(tool_result_role.into(), result.clone())
+                                        .unwrap(),
                                 );
                             }
                             Err(e) => {
                                 tool_response_messages.push(
-                                    LlamaChatMessage::new("user".into(), format!("Error: {:?}", e))
-                                        .unwrap(),
+                                    LlamaChatMessage::new(
+                                        tool_result_role.into(),
+                                        format!("Error: {:?}", e),
+                                    )
+                                    .unwrap(),
                                 );
                             }
                         }
