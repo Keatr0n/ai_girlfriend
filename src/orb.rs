@@ -50,7 +50,11 @@ fn create_particles() -> Vec<Point3D> {
     particles
 }
 
-fn rotate(p: &Point3D, rx: f32, ry: f32, rz: f32) -> Point3D {
+fn rotate(p: &Point3D, rx: f32, ry: f32, rz: f32, multiplier: f32) -> Point3D {
+    let rx = rx * multiplier;
+    let ry = ry * multiplier;
+    let rz = rz * multiplier;
+
     // Rotate around X
     let y1 = p.y * rx.cos() - p.z * rx.sin();
     let z1 = p.y * rx.sin() + p.z * rx.cos();
@@ -70,8 +74,8 @@ fn rotate(p: &Point3D, rx: f32, ry: f32, rz: f32) -> Point3D {
     }
 }
 
-fn get_color(z: f32, intensity: f32, is_running: bool) -> Color {
-    if !is_running {
+fn get_color(z: f32, intensity: f32, is_grey: bool) -> Color {
+    if is_grey {
         return Color::Rgb {
             r: 90,
             g: 90,
@@ -120,6 +124,7 @@ fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
     let particles = create_particles();
     let mut frame = 0.0;
     let mut speaking_modifier = 1.0_f32;
+    let mut spin_multiplier = 1.0_f32;
     let mut rng = rand::rng();
 
     loop {
@@ -158,6 +163,13 @@ fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
         let ry = frame * 0.015;
         let rz = frame * 0.008;
 
+        spin_multiplier = (spin_multiplier
+            + match current_state.llm_state {
+                LlmState::AwaitingInput | LlmState::RunningTts => -2.0,
+                LlmState::InitializingTts | LlmState::RunningInference => 0.2,
+            })
+        .clamp(1.0, 10.0);
+
         for particle in &particles {
             // Apply morphing
             let morphed = Point3D {
@@ -166,7 +178,7 @@ fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
                 z: particle.z * pulse,
             };
 
-            let rotated = rotate(&morphed, rx, ry, rz);
+            let rotated = rotate(&morphed, rx, ry, rz, spin_multiplier);
 
             // Project to 2D (scale x by 2 for terminal aspect ratio)
             let scale = 10.0 / (rotated.z + 4.0);
@@ -184,7 +196,7 @@ fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
         }
 
         // Render
-        execute!(stdout, cursor::MoveTo(0, 0))?;
+        execute!(stdout, cursor::Hide, cursor::MoveTo(0, 0))?;
 
         for y in 0..height {
             for x in 0..width {
@@ -197,13 +209,26 @@ fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
                     let color = get_color(
                         z,
                         intensity,
-                        current_state.life_cycle_state == LifeCycleState::Running,
+                        current_state.life_cycle_state != LifeCycleState::Running
+                            || current_state.user_mute,
                     );
                     execute!(stdout, SetForegroundColor(color), Print(c))?;
                 } else {
                     execute!(stdout, Print(' '))?;
                 }
             }
+        }
+
+        if let Some((text, pos)) = current_state.text_input {
+            let text_x = (width.saturating_sub(text.len())) / 2;
+            execute!(
+                stdout,
+                cursor::MoveTo(text_x as u16, height as u16 - 2),
+                SetForegroundColor(Color::White),
+                Print(text),
+                cursor::MoveTo(text_x as u16 + pos as u16, height as u16 - 2),
+                cursor::Show,
+            )?;
         }
 
         stdout.flush()?;

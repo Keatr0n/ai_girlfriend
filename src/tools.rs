@@ -1,5 +1,5 @@
+use anyhow::Error;
 use regex::Regex;
-use serde_json::Error;
 use std::fs;
 use std::{collections::HashMap, process::Command};
 
@@ -20,6 +20,61 @@ pub struct Tool {
 }
 
 impl Tool {
+    pub fn verify_command(&self, command: &str) -> anyhow::Result<bool> {
+        let in_params = Regex::new(r"\(.*\)")?;
+
+        if let Some(command_name) = command.split("(").next()
+            && command_name != self.name
+        {
+            return Ok(false);
+        }
+
+        if let Some(args) = in_params.find(command) {
+            let args = args.as_str();
+            let args = &args[1..args.len() - 1];
+
+            let mut vec_args: Vec<String> = Vec::new();
+
+            let mut double_quote_depth = 0;
+            let mut single_quote_depth = 0;
+            let mut that_lil_guy_depth = 0;
+            let mut last_match_index = 0;
+
+            for (i, ch) in args.char_indices() {
+                match ch {
+                    '"' => double_quote_depth += 1,
+                    '\'' => single_quote_depth += 1,
+                    '`' => that_lil_guy_depth += 1,
+                    ',' => {
+                        if double_quote_depth % 2 == 0
+                            && single_quote_depth % 2 == 0
+                            && that_lil_guy_depth % 2 == 0
+                        {
+                            vec_args.push(args[last_match_index..i].into());
+                            last_match_index = i;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            for arg in vec_args {
+                let eq: Vec<&str> = arg.trim().split("=").collect();
+
+                let name = eq[0];
+                let param = &eq[1..eq.len()];
+
+                if !self.properties.contains_key(name)
+                    || !verify_arg_type_and_value(param.join("="))?
+                {
+                    return Ok(false);
+                }
+            }
+        }
+
+        Ok(true)
+    }
+
     pub fn to_json(&self) -> serde_json::Value {
         let mut props = serde_json::Map::new();
 
@@ -62,19 +117,61 @@ impl Tool {
     }
 }
 
+pub struct Tools {
+    pub tools: Vec<Tool>,
+    pub tool_file_path: String,
+}
+
 pub trait ToJson {
-    fn to_json(&self) -> Result<String, Error>;
+    fn to_json(&self) -> Result<String, serde_json::Error>;
 }
 
 impl ToJson for Vec<Tool> {
-    fn to_json(&self) -> Result<String, Error> {
+    fn to_json(&self) -> Result<std::string::String, serde_json::Error> {
         let tools: Vec<serde_json::Value> = self.iter().map(|t| t.to_json()).collect();
         serde_json::to_string(&tools)
     }
 }
 
-pub fn run_tool(tool_file_path: &str, command: &str) -> anyhow::Result<String> {
-    let mut segments: Vec<&str> = tool_file_path.split("/").collect();
+fn verify_arg_type_and_value(value: String) -> anyhow::Result<bool> {
+    let str_match = Regex::new(r#"^"([^"]|\\")*[^"\\]"$"#)?;
+    let int_match = Regex::new(r#"^\d*\d$"#)?;
+    let float_match = Regex::new(r#"^\d*\.\d*\d$"#)?;
+    let bool_match = Regex::new(r#"^(True|False)$"#)?;
+
+    // let list_match = |v: String| if let Ok(reg) = Regex::new(r#"^\[\]$"#) && reg.is_match(&value) && value.split(",").all(|v| verify_arg_type_and_value(None, v.into()).unwrap_or(false)) {true} else {false};
+    // let dict_match = |v: String| if let Ok(reg) = Regex::new(r#"^\{\}$"#) && reg.is_match(&value) && value.split(",").all(|v| if let Some(v) = v.split(":").last() && verify_arg_type_and_value(None, v.into()).unwrap_or(false) {true} else {false}) {true} else {false};
+
+    {
+        if str_match.is_match(&value)
+            || int_match.is_match(&value)
+            || float_match.is_match(&value)
+            || bool_match.is_match(&value)
+        // list_match(value.clone()) ||
+        // dict_match(value.clone())
+        {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+pub fn run_tool(tools: &Tools, command: &str) -> anyhow::Result<String> {
+    // Validate the command is safe before executing
+    if tools.tools.iter().all(|el| {
+        if let Ok(val) = el.verify_command(command) {
+            !val
+        } else {
+            true
+        }
+    }) {
+        return Err(Error::msg(
+            "Command forbidden\nFor safety, only boolean, float, int, and string params are allowed.\nThe programmer also notes that he is lazy and can't be bothered to add more.",
+        ));
+    }
+
+    let mut segments: Vec<&str> = tools.tool_file_path.split("/").collect();
     let file = segments.pop().unwrap_or_default();
 
     let command = Command::new("python")
@@ -199,22 +296,7 @@ pub fn supports_tools(chat_template: &str) -> bool {
         || chat_template.contains("<tool_call>")
 }
 
-// // Detect tool call format from template
-// pub fn detect_tool_format(chat_template: &str) -> ToolFormat {
-//     if chat_template.contains(r#"{"name":"#) {
-//         ToolFormat::JsonStandard // {"name": "...", "parameters": {...}}
-//     } else if chat_template.contains("<|python_tag|>") {
-//         ToolFormat::PythonCall // builtin tools format
-//     } else if chat_template.contains("functools") {
-//         ToolFormat::Functools // functools[...]
-//     } else if chat_template.contains("<|tool_call_start|>") {
-//         ToolFormat::ToolCallTags // <|tool_call_start|>...<|tool_call_end|>
-//     } else {
-
-//     }
-// }
-
-pub fn parse_python_functions(directory: String) -> Vec<Tool> {
+pub fn parse_python_functions(directory: String) -> Tools {
     let content = fs::read_to_string(&directory).expect("Failed to read file");
 
     // Match: def function_name(args):
@@ -238,7 +320,10 @@ pub fn parse_python_functions(directory: String) -> Vec<Tool> {
         });
     }
 
-    tools
+    Tools {
+        tool_file_path: directory,
+        tools,
+    }
 }
 
 /// Tries all tool call formats and returns the parsed command if found

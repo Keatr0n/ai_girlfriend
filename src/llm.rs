@@ -81,12 +81,11 @@ fn run_llm_loop(
 
     let mut batch = LlamaBatch::new(BATCH_SIZE as usize, 1);
 
-    let prompt = if supports_tools(_chat_template.to_str()?)
+    let (prompt, tools) = if supports_tools(_chat_template.to_str()?)
         && let Some(tool_directory) = tool_directory.clone()
     {
-        let tools_str = parse_python_functions(tool_directory.clone())
-            .to_json()
-            .unwrap_or_default();
+        let tools = parse_python_functions(tool_directory.clone());
+        let tools_str = tools.tools.to_json().unwrap();
 
         let proompt = model.apply_chat_template_with_tools_oaicompat(
             &_chat_template,
@@ -99,19 +98,25 @@ fn run_llm_loop(
         // println!("{:?}\n\r{:?}\n\r{:?}", tools_str, tool_directory, proompt);
 
         match proompt {
-            Ok(data) => data.prompt,
-            Err(_) => model.apply_chat_template(
+            Ok(data) => (data.prompt, Some(tools)),
+            Err(_) => (
+                model.apply_chat_template(
+                    &_chat_template,
+                    &[LlamaChatMessage::new("system".into(), system_prompt).unwrap()],
+                    false,
+                )?,
+                None,
+            ),
+        }
+    } else {
+        (
+            model.apply_chat_template(
                 &_chat_template,
                 &[LlamaChatMessage::new("system".into(), system_prompt).unwrap()],
                 false,
             )?,
-        }
-    } else {
-        model.apply_chat_template(
-            &_chat_template,
-            &[LlamaChatMessage::new("system".into(), system_prompt).unwrap()],
-            false,
-        )?
+            None,
+        )
     };
 
     let tool_result_role = if _chat_template.to_str()?.contains("role == \"tool\"") {
@@ -233,7 +238,7 @@ fn run_llm_loop(
             sampler.accept(token);
 
             if model.is_eog_token(token) {
-                if let Some(ref tool_dir) = tool_directory
+                if let Some(ref tools) = tools
                     && let Some((_format, tool_command)) = try_parse_tool_call(&reply)
                 {
                     if enable_word_by_word_response {
@@ -251,7 +256,7 @@ fn run_llm_loop(
                         vec![LlamaChatMessage::new("assistant".into(), reply.clone()).unwrap()];
 
                     for call in &tool_calls {
-                        match run_tool(tool_dir, call) {
+                        match run_tool(tools, call) {
                             Ok(result) => {
                                 tool_response_messages.push(
                                     LlamaChatMessage::new(tool_result_role.into(), result.clone())
@@ -346,6 +351,7 @@ fn run_llm_loop(
                         s.time_since_name_was_said = Some(Instant::now());
                     }
 
+                    s.system_mute = false;
                     s.llm_state = LlmState::AwaitingInput;
                 }
             });

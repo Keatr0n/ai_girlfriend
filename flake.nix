@@ -31,13 +31,6 @@
       ];
 
       shellHook = ''
-        export LLAMA_CUDA=0
-        export LLAMA_METAL=0
-        export LLAMA_ROCM=1
-        export LLAMA_OPENBLAS=1
-        export LLAMA_AVX=1
-        export LLAMA_AVX2=1
-        export LLAMA_FMA=1
         export OPENSSL_DIR=${pkgs.openssl.dev}
         export OPENSSL_LIB_DIR=${pkgs.openssl.out}/lib
 
@@ -52,6 +45,11 @@
         export C_INCLUDE_PATH=${pkgs.stdenv.cc.cc.lib}/include
         export CPLUS_INCLUDE_PATH=${pkgs.stdenv.cc.cc.lib}/include
         export LIBRARY_PATH=${pkgs.stdenv.cc.cc.lib}/lib
+
+        # ROCm/HIP paths for cmake
+        export ROCM_PATH=${pkgs.rocmPackages.clr}
+        export HIP_PATH=${pkgs.rocmPackages.clr}
+        export CMAKE_HIP_COMPILER=${pkgs.rocmPackages.llvm.clang}/bin/clang++
       '';
     };
   };
