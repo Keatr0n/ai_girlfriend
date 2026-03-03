@@ -89,12 +89,10 @@ fn main() -> anyhow::Result<()> {
 
     let _ = llm::spawn_llm_thread(
         state_for_llm,
-        llm_model_path,
+        selected.with_defaults(Some(llm_model_path), None, config.global.tool_path),
         llm_threads,
         llm_context_size,
         config.global.enable_word_by_word_response,
-        system_prompt,
-        selected.tool_path.or(config.global.tool_path),
     );
     let _ = tts::spawn_tts_thread(state_for_tts, piper_model_path);
 

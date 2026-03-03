@@ -3,6 +3,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+use chrono::Timelike;
 use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
@@ -15,12 +16,12 @@ use llama_cpp_2::{
 };
 use regex::Regex;
 
-use crate::state::StateHandle;
 use crate::state::{LifeCycleState, LlmCommand, LlmState};
 use crate::tools::{
     ToJson, parse_python_functions, run_tool, split_tool_calls, supports_tools, try_parse_tool_call,
 };
 use crate::ui;
+use crate::{config::Assistant, state::StateHandle};
 use rand::RngCore;
 
 const BATCH_SIZE: i32 = 2048;
@@ -31,22 +32,18 @@ pub struct LlmHandle {
 
 pub fn spawn_llm_thread(
     state: StateHandle,
-    path: String,
+    assistant: Assistant,
     llm_threads: i32,
     llm_context_size: u32,
     enable_word_by_word_response: bool,
-    system_prompt: String,
-    tool_directory: Option<String>,
 ) -> LlmHandle {
     let handle = thread::spawn(move || {
         let _ = run_llm_loop(
             state,
-            path,
+            assistant,
             llm_threads,
             llm_context_size,
             enable_word_by_word_response,
-            system_prompt,
-            tool_directory,
         );
     });
 
@@ -55,12 +52,10 @@ pub fn spawn_llm_thread(
 
 fn run_llm_loop(
     state: StateHandle,
-    path: String,
+    assistant: Assistant,
     llm_threads: i32,
     llm_context_size: u32,
     enable_word_by_word_response: bool,
-    system_prompt: String,
-    tool_directory: Option<String>,
 ) -> anyhow::Result<()> {
     let mut backend = Box::new(LlamaBackend::init()?);
     let end_sentence = Regex::new(r"[.?;:]")?;
@@ -69,7 +64,11 @@ fn run_llm_loop(
     ui::status_llm_loaded();
     let params = params::LlamaModelParams::default().with_n_gpu_layers(99);
 
-    let model = Box::new(LlamaModel::load_from_file(&backend, &path, &params)?);
+    let model = Box::new(LlamaModel::load_from_file(
+        &backend,
+        assistant.llm_model_path.unwrap(),
+        &params,
+    )?);
 
     let context_params = LlamaContextParams::default()
         .with_n_threads(llm_threads)
@@ -82,27 +81,42 @@ fn run_llm_loop(
     let mut batch = LlamaBatch::new(BATCH_SIZE as usize, 1);
 
     let (prompt, tools) = if supports_tools(_chat_template.to_str()?)
-        && let Some(tool_directory) = tool_directory.clone()
+        && let Some(tool_directory) = assistant.tool_path.clone()
     {
         let tools = parse_python_functions(tool_directory.clone());
         let tools_str = tools.tools.to_json().unwrap();
 
+        let greeting_time = match chrono::offset::Local::now().time().hour() {
+            0..12 => "morning",
+            12..17 => "afternoon",
+            17..24 => "evening",
+            _ => "day",
+        };
+
         let proompt = model.apply_chat_template_with_tools_oaicompat(
             &_chat_template,
-            &[LlamaChatMessage::new("system".into(), system_prompt.clone()).unwrap()],
+            &[
+                LlamaChatMessage::new("system".into(), assistant.system_prompt.clone()).unwrap(),
+                LlamaChatMessage::new(
+                    "user".into(),
+                    format!("Good {}, {}.", greeting_time, assistant.name),
+                )
+                .unwrap(),
+            ],
             Some(&tools_str),
             None,
             false,
         );
 
         // println!("{:?}\n\r{:?}\n\r{:?}", tools_str, tool_directory, proompt);
+        // std::thread::sleep(std::time::Duration::from_millis(8000));
 
         match proompt {
             Ok(data) => (data.prompt, Some(tools)),
             Err(_) => (
                 model.apply_chat_template(
                     &_chat_template,
-                    &[LlamaChatMessage::new("system".into(), system_prompt).unwrap()],
+                    &[LlamaChatMessage::new("system".into(), assistant.system_prompt).unwrap()],
                     false,
                 )?,
                 None,
@@ -112,7 +126,7 @@ fn run_llm_loop(
         (
             model.apply_chat_template(
                 &_chat_template,
-                &[LlamaChatMessage::new("system".into(), system_prompt).unwrap()],
+                &[LlamaChatMessage::new("system".into(), assistant.system_prompt).unwrap()],
                 false,
             )?,
             None,

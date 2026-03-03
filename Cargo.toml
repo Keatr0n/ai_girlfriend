@@ -9,7 +9,8 @@ cpal = "0.16.0"
 rodio = "0.21.1"
 regex = "1.12.3"
 whisper-rs = "0.15.1"
-llama-cpp-2 = { version="0.1.135", features = ["rocm"] }
+llama-cpp-2 = { version="0.1.137", features = ["rocm"] }
+chrono = "=0.4.9"
 webrtc-vad = "0.4.0"
 ringbuf = "0.4.8"
 rubato = "1.0.0"

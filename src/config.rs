@@ -37,6 +37,24 @@ pub struct Assistant {
     pub tool_path: Option<String>,
 }
 
+impl Assistant {
+    pub fn with_defaults(
+        &self,
+        llm_model_path: Option<String>,
+        piper_model_path: Option<String>,
+        tool_path: Option<String>,
+    ) -> Assistant {
+        Assistant {
+            name: self.name.clone(),
+            system_prompt: self.system_prompt.clone(),
+            llm_model_path: self.llm_model_path.clone().or(llm_model_path),
+            piper_model_path: self.piper_model_path.clone().or(piper_model_path),
+            conversation_file: self.conversation_file.clone(),
+            tool_path: self.tool_path.clone().or(tool_path),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub global: GlobalConfig,
