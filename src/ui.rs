@@ -116,7 +116,8 @@ fn print_conversation(state: State, re: &Option<Regex>, model_name: &String) -> 
                 && state.is_hiding_think_tags
             {
                 print!(
-                    "AI: {}\n\r",
+                    "{}: {}\n\r",
+                    model_name,
                     reg.replace_all(&ai.replace("\n", "\n\r"), "").trim()
                 );
             } else {

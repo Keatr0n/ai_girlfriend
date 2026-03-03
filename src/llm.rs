@@ -102,6 +102,8 @@ fn run_llm_loop(
                     format!("Good {}, {}.", greeting_time, assistant.name),
                 )
                 .unwrap(),
+                LlamaChatMessage::new("assistant".into(), format!("Good {}.", greeting_time))
+                    .unwrap(),
             ],
             Some(&tools_str),
             None,
@@ -235,7 +237,12 @@ fn run_llm_loop(
 
         let mut reply = String::new();
         let mut last_message_chunk_index = 0;
-        let mut sampler = LlamaSampler::chain_simple([LlamaSampler::dist(rng.next_u32())]);
+        let mut sampler = LlamaSampler::chain_simple([
+            LlamaSampler::top_k(40),
+            LlamaSampler::min_p(0.05, 1),
+            LlamaSampler::temp(0.8),
+            LlamaSampler::dist(rng.next_u32()),
+        ]);
         let mut decoder = encoding_rs::UTF_8.new_decoder();
 
         let mut interrupted = false;
