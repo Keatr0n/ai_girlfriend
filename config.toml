@@ -21,7 +21,7 @@ default_assistant = "Jarvis"
 # The assistant will refer to itself by this name
 name = "Jarvis"
 system_prompt = "You are an AI assistant. Keep your responses short and helpful. You respond with no formatting at all, only plain text."
-# llm_model_path = "/path/to/model.gguf"  # Override the default from .env
-# piper_model_path = "/path/to/model.onnx"  # Override the default from .env
-# conversation_file = "Jarvis_history.txt"  # Defaults to {name}_history.txt
-# tool_path = "/path/to/your/tools.py"
+# llm_model_path = "/path/to/model.gguf"  # Overrides the default
+# piper_model_path = "/path/to/model.onnx"  # Overrides the default
+# conversation_file = "Jarvis_history.txt"  # The location where the "memory" will be saved. Defaults to {name}_history.txt
+# tool_path = "/path/to/your/tools.py"  # Overrides the default
