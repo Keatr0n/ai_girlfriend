@@ -63,6 +63,7 @@ fn main() -> anyhow::Result<()> {
     let llm_context_size: u32 = config.global.llm_context_size;
 
     let stt = Stt::new(&whisper_model_path)?;
+    let selected = selected.with_defaults(Some(llm_model_path), None, config.global.tool_path);
 
     ui::status_stt_online();
 
@@ -79,7 +80,13 @@ fn main() -> anyhow::Result<()> {
     let _ = input::spawn_input_thread(state_for_input);
 
     let _ = if config.global.orb_mode {
-        (Some(orb::spawn_orb_thread(state_for_ui)), None)
+        (
+            Some(orb::spawn_orb_thread(
+                state_for_ui,
+                selected.orb_colour.unwrap(),
+            )),
+            None,
+        )
     } else {
         (
             None,
@@ -89,7 +96,7 @@ fn main() -> anyhow::Result<()> {
 
     let _ = llm::spawn_llm_thread(
         state_for_llm,
-        selected.with_defaults(Some(llm_model_path), None, config.global.tool_path),
+        selected.clone(),
         llm_threads,
         llm_context_size,
         config.global.enable_word_by_word_response,

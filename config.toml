@@ -25,3 +25,4 @@ system_prompt = "You are an AI assistant. Keep your responses short and helpful.
 # piper_model_path = "/path/to/model.onnx"  # Overrides the default
 # conversation_file = "Jarvis_history.txt"  # The location where the "memory" will be saved. Defaults to {name}_history.txt
 # tool_path = "/path/to/your/tools.py"  # Overrides the default
+# orb_colour = 0x0120ad # If you are using **THE ORB** you can use this to set a custom colour

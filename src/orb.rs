@@ -23,9 +23,9 @@ pub struct OrbHandle {
     _handle: JoinHandle<()>,
 }
 
-pub fn spawn_orb_thread(state: StateHandle) -> OrbHandle {
+pub fn spawn_orb_thread(state: StateHandle, base_colour: u32) -> OrbHandle {
     let handle = thread::spawn(move || {
-        let _ = summon_orb(state);
+        let _ = summon_orb(state, base_colour);
     });
 
     OrbHandle { _handle: handle }
@@ -74,7 +74,7 @@ fn rotate(p: &Point3D, rx: f32, ry: f32, rz: f32, multiplier: f32) -> Point3D {
     }
 }
 
-fn get_color(z: f32, intensity: f32, is_grey: bool) -> Color {
+fn get_color(z: f32, intensity: f32, base_colour: u32, is_grey: bool) -> Color {
     if is_grey {
         return Color::Rgb {
             r: 90,
@@ -85,23 +85,27 @@ fn get_color(z: f32, intensity: f32, is_grey: bool) -> Color {
 
     let z_norm = (z + 2.0) / 4.0;
 
+    let r = ((base_colour & 0xff0000) >> 16) as u8;
+    let g = ((base_colour & 0x00ff00) >> 8) as u8;
+    let b = (base_colour & 0x0000ff) as u8;
+
     if z_norm < 0.4 {
         Color::Rgb {
-            r: 50,
-            g: 180,
-            b: 255,
+            r: (r as f32 * 5.0).round() as u8,
+            g: (g as f32 * 5.0).round() as u8,
+            b: (b as f32 * 5.0).round() as u8,
         }
     } else if z_norm < 0.6 {
         Color::Rgb {
-            r: 50,
-            g: 100,
-            b: 200,
+            r: (r as f32 * 2.0).round() as u8,
+            g: (g as f32 * 2.0).round() as u8,
+            b: (b as f32 * 2.0).round() as u8,
         }
     } else {
         Color::Rgb {
-            r: 0,
-            g: (30.0 * intensity) as u8,
-            b: (200.0 * intensity) as u8,
+            r: (r as f32 * intensity).round() as u8,
+            g: (g as f32 * intensity).round() as u8,
+            b: (b as f32 * intensity).round() as u8,
         }
     }
 }
@@ -116,7 +120,7 @@ fn get_char(intensity: f32) -> char {
     }
 }
 
-fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
+fn summon_orb(state: StateHandle, base_colour: u32) -> anyhow::Result<()> {
     let mut stdout = stdout();
 
     execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
@@ -209,6 +213,7 @@ fn summon_orb(state: StateHandle) -> anyhow::Result<()> {
                     let color = get_color(
                         z,
                         intensity,
+                        base_colour,
                         current_state.life_cycle_state != LifeCycleState::Running
                             || current_state.user_mute,
                     );

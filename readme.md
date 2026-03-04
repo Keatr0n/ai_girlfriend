@@ -54,6 +54,8 @@ There are a few keyboard shortcuts that can help when she misunderstands you or 
 
 `n`: Will set the model to only respond after you say it's **n**ame.
 
+`d`: Will **d**ump the current conversation into `conversation_dump.txt`. Useful if it does something unexpected while using **THE ORB**
+
 ## Configuration and Customization
 
 Before you start, you'll need to fill in the `config.toml`

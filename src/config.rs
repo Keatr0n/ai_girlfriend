@@ -35,6 +35,8 @@ pub struct Assistant {
     pub conversation_file: Option<String>,
     #[serde(default)]
     pub tool_path: Option<String>,
+    #[serde(default)]
+    pub orb_colour: Option<u32>,
 }
 
 impl Assistant {
@@ -51,7 +53,14 @@ impl Assistant {
             piper_model_path: self.piper_model_path.clone().or(piper_model_path),
             conversation_file: self.conversation_file.clone(),
             tool_path: self.tool_path.clone().or(tool_path),
+            orb_colour: self.orb_colour.or(Some(0x0120ad)),
         }
+    }
+
+    pub fn conversation_file(&self) -> String {
+        self.conversation_file.clone().unwrap_or_else(|| {
+            format!("{}_history.txt", self.name.to_lowercase().replace(' ', "_"))
+        })
     }
 }
 
@@ -59,14 +68,6 @@ impl Assistant {
 pub struct Config {
     pub global: GlobalConfig,
     pub assistant: Vec<Assistant>,
-}
-
-impl Assistant {
-    pub fn conversation_file(&self) -> String {
-        self.conversation_file.clone().unwrap_or_else(|| {
-            format!("{}_history.txt", self.name.to_lowercase().replace(' ', "_"))
-        })
-    }
 }
 
 pub fn load_config() -> anyhow::Result<Config> {

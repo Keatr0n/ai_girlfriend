@@ -1,3 +1,5 @@
+use std::fs;
+use std::io::Write;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -166,6 +168,21 @@ fn run_input_loop(state: StateHandle) {
                         s.is_only_responding_after_name = !s.is_only_responding_after_name;
                         s.time_since_name_was_said = None;
                     });
+                }
+                KeyCode::Char('d') => {
+                    let state = state.read();
+                    if let Ok(mut file) = fs::File::create("conversation_dump.txt") {
+                        let _ = write!(
+                            file,
+                            "{}",
+                            state
+                                .conversation
+                                .iter()
+                                .map(|(user, ai)| { format!("User: {}\nAi: {}", user, ai) })
+                                .collect::<Vec<String>>()
+                                .join("\n---\n")
+                        );
+                    }
                 }
                 _ => {}
             }
