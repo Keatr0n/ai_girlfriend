@@ -67,7 +67,7 @@ And under `[[assistant]]` you can set up and customize your many girlfrie... I m
 ## Tools
 There is also a rudimentary tool support. If you supply a tool_path that points to a python file, it can use any top level function in that file when required. (Some version of python must be installed for this) You can also set individual tool files per assistant too. It will also pass in the docstring for context to the llm, so it's recommended you add one.
 
-For safety, you can only use str, int, float, and bool arguments for the functions. That being said this can still be extremely dangerous and can lave you open to prompt injection attacks among other things.
+For safety, you can only use str, int, float, and bool arguments for the functions. That being said this can still be extremely dangerous and can leave you open to prompt injection attacks among other things.
 
 So please be mindful with what you give the llm access to. And add as many guardrails as you can. For instance, if you are giving it write access to a certain part of the filesystem, make sure you block all attempts to traverse up with `../`.
 
