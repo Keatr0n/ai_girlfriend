@@ -16,7 +16,7 @@ use llama_cpp_2::{
 };
 use regex::Regex;
 
-use crate::state::{LifeCycleState, LlmCommand, LlmState};
+use crate::state::{ConversationSnippet, LifeCycleState, LlmCommand, LlmRole, LlmState};
 use crate::tools::{
     ToJson, parse_python_functions, run_tool, split_tool_calls, supports_tools, try_parse_tool_call,
 };
@@ -261,19 +261,10 @@ fn run_llm_loop(
                 if let Some(ref tools) = tools
                     && let Some((_format, tool_command)) = try_parse_tool_call(&reply)
                 {
-                    if enable_word_by_word_response {
-                        state.update(|s| {
-                            if let Some((user, _)) = s.conversation.pop() {
-                                s.conversation.push((user, "Calling tools...".into()));
-                            }
-                        });
-                    }
-
                     let tool_calls = split_tool_calls(&tool_command);
 
                     // Add tool result as a message and continue inference
-                    let mut tool_response_messages =
-                        vec![LlamaChatMessage::new("assistant".into(), reply.clone()).unwrap()];
+                    let mut tool_response_messages = vec![];
 
                     for call in &tool_calls {
                         match run_tool(tools, call) {
@@ -282,6 +273,21 @@ fn run_llm_loop(
                                     LlamaChatMessage::new(tool_result_role.into(), result.clone())
                                         .unwrap(),
                                 );
+
+                                state.update(|s| {
+                                    if let Some(snippet) = s.conversation.pop() {
+                                        s.conversation.push(ConversationSnippet {
+                                            is_tool_call: true,
+                                            ..snippet
+                                        });
+                                    }
+
+                                    s.conversation.push(ConversationSnippet {
+                                        message: result,
+                                        role: crate::state::LlmRole::Tool,
+                                        is_tool_call: false,
+                                    });
+                                });
                             }
                             Err(e) => {
                                 tool_response_messages.push(
@@ -291,6 +297,21 @@ fn run_llm_loop(
                                     )
                                     .unwrap(),
                                 );
+
+                                state.update(|s| {
+                                    if let Some(snippet) = s.conversation.pop() {
+                                        s.conversation.push(ConversationSnippet {
+                                            is_tool_call: true,
+                                            ..snippet
+                                        });
+                                    }
+
+                                    s.conversation.push(ConversationSnippet {
+                                        message: format!("Error: {:?}", e),
+                                        role: crate::state::LlmRole::Tool,
+                                        is_tool_call: false,
+                                    });
+                                });
                             }
                         }
                     }
@@ -336,18 +357,27 @@ fn run_llm_loop(
                     } else if t.contains("<") {
                         is_thinking = true;
                     }
-
-                    state.update(|s| {
-                        if let Some((user, _)) = s.conversation.pop() {
-                            s.conversation.push((user, reply.clone()));
-                        }
-                        if end_sentence.is_match(&t) && !is_thinking {
-                            let sentence = &reply[last_message_chunk_index..];
-                            last_message_chunk_index = reply.len();
-                            s.tts_commands.push(sentence.into());
-                        }
-                    });
                 }
+
+                state.update(|s| {
+                    if let Some(snippet) = s.conversation.last()
+                        && snippet.role == LlmRole::Assistant
+                    {
+                        s.conversation.pop();
+                    }
+
+                    s.conversation.push(ConversationSnippet {
+                        role: crate::state::LlmRole::Assistant,
+                        message: reply.clone(),
+                        is_tool_call: false,
+                    });
+
+                    if enable_word_by_word_response && end_sentence.is_match(&t) && !is_thinking {
+                        let sentence = &reply[last_message_chunk_index..];
+                        last_message_chunk_index = reply.len();
+                        s.tts_commands.push(sentence.into());
+                    }
+                });
             }
 
             batch.clear();
@@ -366,38 +396,40 @@ fn run_llm_loop(
             exchange_checkpoints.pop();
 
             state.update(|s| {
-                if let Some((_, _)) = s.conversation.pop() {
-                    if s.is_only_responding_after_name {
-                        s.time_since_name_was_said = Some(Instant::now());
+                loop {
+                    if let Some(snippet) = s.conversation.pop()
+                        && snippet.role == LlmRole::User
+                    {
+                        break;
                     }
-
-                    s.system_mute = false;
-                    s.llm_state = LlmState::AwaitingInput;
                 }
+
+                if s.is_only_responding_after_name {
+                    s.time_since_name_was_said = Some(Instant::now());
+                }
+
+                s.system_mute = false;
+                s.llm_state = LlmState::AwaitingInput;
             });
 
             continue;
         }
 
         state.update(|s| {
-            if let Some((user, _)) = s.conversation.pop() {
-                s.conversation.push((user, reply.clone()));
+            if s.is_only_responding_after_name {
+                s.time_since_name_was_said = Some(Instant::now());
+            }
 
-                if s.is_only_responding_after_name {
-                    s.time_since_name_was_said = Some(Instant::now());
-                }
-
-                if s.life_cycle_state != LifeCycleState::ShuttingDown {
-                    if !enable_word_by_word_response {
-                        s.llm_state = LlmState::InitializingTts;
-                        s.tts_commands.push(reply);
-                    } else {
-                        s.llm_state = LlmState::AwaitingInput;
-                        s.system_mute = false
-                    }
+            if s.life_cycle_state != LifeCycleState::ShuttingDown {
+                if !enable_word_by_word_response {
+                    s.llm_state = LlmState::InitializingTts;
+                    s.tts_commands.push(reply);
                 } else {
                     s.llm_state = LlmState::AwaitingInput;
+                    s.system_mute = false
                 }
+            } else {
+                s.llm_state = LlmState::AwaitingInput;
             }
         });
     }

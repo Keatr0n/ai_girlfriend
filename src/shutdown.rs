@@ -36,9 +36,9 @@ Format as concise bullet points. Include nothing else in your response.";
         let s = state.read();
         if s.llm_state == LlmState::AwaitingInput
             && s.llm_command.is_none()
-            && let Some((_, reply)) = s.conversation.last()
+            && let Some(snippet) = s.conversation.last()
         {
-            break re.replace_all(&reply.clone(), "").trim().into();
+            break re.replace_all(&snippet.message.clone(), "").trim().into();
         }
     };
 
@@ -70,9 +70,9 @@ Format as concise bullet points. Include nothing else in your response.";
             let s = state.read();
             if s.llm_state == LlmState::AwaitingInput
                 && s.llm_command.is_none()
-                && let Some((_, reply)) = s.conversation.last()
+                && let Some(snippet) = s.conversation.last()
             {
-                break re.replace_all(&reply.clone(), "").trim().into();
+                break re.replace_all(&snippet.message.clone(), "").trim().into();
             }
         };
     }

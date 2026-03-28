@@ -24,9 +24,33 @@ pub enum LlmCommand {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum LlmRole {
+    User,
+    Assistant,
+    Tool,
+}
+
+impl std::fmt::Display for LlmRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LlmRole::User => write!(f, "User"),
+            LlmRole::Assistant => write!(f, "Assistant"),
+            LlmRole::Tool => write!(f, "Tool"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversationSnippet {
+    pub role: LlmRole,
+    pub message: String,
+    pub is_tool_call: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct State {
     pub life_cycle_state: LifeCycleState,
-    pub conversation: Vec<(String, String)>,
+    pub conversation: Vec<ConversationSnippet>,
     pub text_input: Option<(String, usize)>,
     pub system_mute: bool,
     pub user_mute: bool,

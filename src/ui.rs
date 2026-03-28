@@ -6,15 +6,18 @@ use std::{
 use crossterm::terminal;
 use regex::Regex;
 
-use crate::state::{LifeCycleState, LlmState, State, StateHandle};
+use crate::state::{ConversationSnippet, LifeCycleState, LlmRole, LlmState, State, StateHandle};
 
-pub fn run_ui_loop(state: StateHandle, model_name: String) {
+pub fn run_ui_loop(state: StateHandle, model_name: String, enable_word_by_word_response: bool) {
     let re = Regex::new(r"(<think>[\s\S]*?<\/think>)*").ok();
     let mut previous_state = state.read();
 
     loop {
         let s = state.read();
-        if s == previous_state || s.life_cycle_state == LifeCycleState::Initializing {
+        if s == previous_state
+            || s.life_cycle_state == LifeCycleState::Initializing
+            || (s.llm_state == LlmState::RunningInference && !enable_word_by_word_response)
+        {
             continue;
         }
 
@@ -33,9 +36,13 @@ pub struct UiHandle {
     _handle: JoinHandle<()>,
 }
 
-pub fn spawn_ui_thread(state: StateHandle, model_name: String) -> UiHandle {
+pub fn spawn_ui_thread(
+    state: StateHandle,
+    model_name: String,
+    enable_word_by_word_response: bool,
+) -> UiHandle {
     let handle = thread::spawn(move || {
-        run_ui_loop(state, model_name);
+        run_ui_loop(state, model_name, enable_word_by_word_response);
     });
 
     UiHandle { _handle: handle }
@@ -109,20 +116,32 @@ fn print_conversation(state: State, re: &Option<Regex>, model_name: &String) -> 
 
     let history = state.conversation;
 
-    for (user, ai) in history {
-        print!("\nYou: {}\n\n\r", user);
-        if !ai.is_empty() {
-            if let Some(reg) = &re
-                && state.is_hiding_think_tags
-            {
-                print!(
-                    "{}: {}\n\r",
-                    model_name,
-                    reg.replace_all(&ai.replace("\n", "\n\r"), "").trim()
-                );
-            } else {
-                print!("AI: {}\n\r", ai.replace("\n", "\n\r"));
+    for ConversationSnippet {
+        message,
+        role,
+        is_tool_call,
+    } in history
+    {
+        if is_tool_call {
+            continue;
+        }
+
+        match role {
+            LlmRole::Assistant => {
+                if let Some(reg) = &re
+                    && state.is_hiding_think_tags
+                {
+                    print!(
+                        "{}: {}\n\r",
+                        model_name,
+                        reg.replace_all(&message.replace("\n", "\n\r"), "").trim()
+                    );
+                } else {
+                    print!("{}: {}\n\r", model_name, message.replace("\n", "\n\r"));
+                }
             }
+            LlmRole::User => print!("\nYou: {}\n\n\r", message),
+            _ => (),
         }
     }
 

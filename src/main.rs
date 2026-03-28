@@ -18,7 +18,7 @@ use stt::Stt;
 
 use crate::{
     shutdown::save_conversation,
-    state::{LlmCommand, LlmState, StateHandle},
+    state::{ConversationSnippet, LlmCommand, LlmState, StateHandle},
 };
 
 fn load_previous_summary(conversation_file: &str) -> Option<String> {
@@ -90,7 +90,11 @@ fn main() -> anyhow::Result<()> {
     } else {
         (
             None,
-            Some(ui::spawn_ui_thread(state_for_ui, selected.name.clone())),
+            Some(ui::spawn_ui_thread(
+                state_for_ui,
+                selected.name.clone(),
+                config.global.enable_word_by_word_response,
+            )),
         )
     };
 
@@ -154,7 +158,11 @@ fn main() -> anyhow::Result<()> {
             state.update(|s| {
                 s.time_since_name_was_said = None;
                 s.system_mute = true;
-                s.conversation.push((text.trim().into(), "".into()));
+                s.conversation.push(ConversationSnippet {
+                    role: state::LlmRole::User,
+                    message: text.clone(),
+                    is_tool_call: false,
+                });
                 s.llm_state = LlmState::RunningInference;
                 s.llm_command = Some(LlmCommand::ContinueConversation(text.trim().into()));
             });

@@ -6,7 +6,9 @@ use std::time::Duration;
 use crossterm::event::{Event, KeyCode, KeyModifiers, poll, read};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
-use crate::state::{LifeCycleState, LlmCommand, LlmState, StateHandle};
+use crate::state::{
+    ConversationSnippet, LifeCycleState, LlmCommand, LlmRole, LlmState, StateHandle,
+};
 
 pub struct InputHandle {
     _handle: JoinHandle<()>,
@@ -79,13 +81,28 @@ fn run_input_loop(state: StateHandle) {
                         if s.is_editing {
                             s.user_mute = pre_edit_mute_state;
                             s.text_input = None;
+                            loop {
+                                if let Some(snippet) = s.conversation.pop()
+                                    && snippet.role != LlmRole::User
+                                {
+                                    break;
+                                }
+                            }
                             s.conversation.pop();
-                            s.conversation.push((text.clone(), "".into()));
+                            s.conversation.push(ConversationSnippet {
+                                message: text.clone(),
+                                role: LlmRole::User,
+                                is_tool_call: false,
+                            });
                             s.llm_command = Some(LlmCommand::EditLastMessage(text));
                             s.is_editing = false;
                         } else {
                             s.text_input = Some(("".into(), 0));
-                            s.conversation.push((text.clone(), "".into()));
+                            s.conversation.push(ConversationSnippet {
+                                message: text.clone(),
+                                role: LlmRole::User,
+                                is_tool_call: false,
+                            });
                             s.llm_command = Some(LlmCommand::ContinueConversation(text));
                         }
                     });
@@ -127,11 +144,16 @@ fn run_input_loop(state: StateHandle) {
             match key.code {
                 KeyCode::Up => {
                     let current = state.read();
-                    let mut edit_buffer = String::new();
-                    if let Some((user, _)) = current.conversation.last() {
-                        edit_buffer = user.clone();
+                    let mut len = current.conversation.len() - 1;
+                    loop {
+                        if len == 0 || current.conversation[len].role == LlmRole::User {
+                            break;
+                        }
+
+                        len -= 1;
                     }
 
+                    let edit_buffer = current.conversation[len].clone().message;
                     let cursor_pos = edit_buffer.chars().count();
                     state.update(|s| {
                         s.text_input = Some((edit_buffer, cursor_pos));
@@ -178,7 +200,7 @@ fn run_input_loop(state: StateHandle) {
                             state
                                 .conversation
                                 .iter()
-                                .map(|(user, ai)| { format!("User: {}\nAi: {}", user, ai) })
+                                .map(|snippet| { format!("{}:{}", snippet.role, snippet.message) })
                                 .collect::<Vec<String>>()
                                 .join("\n---\n")
                         );
