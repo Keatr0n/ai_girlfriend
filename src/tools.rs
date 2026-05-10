@@ -287,43 +287,58 @@ pub fn parse_tool_call(text: &str, format: ToolFormat) -> Option<String> {
         }
 
         ToolFormat::ToolCallXmlFunction => {
-            trimmed.find("<tool_call>").and_then(|_| {
-                // Extract function name from <function=NAME>
-                trimmed.find("<function=").and_then(|fn_start| {
-                    let name_start = fn_start + 10; // length of "<function="
-                    trimmed[name_start..].find('>').map(|name_end| {
-                        let name = &trimmed[name_start..name_start + name_end];
-                        // Extract all <parameter=KEY>\nVALUE\n</parameter> blocks
-                        let mut args = Vec::new();
-                        let mut search = &trimmed[name_start + name_end..];
-                        while let Some(p_start) = search.find("<parameter=") {
-                            let key_start = p_start + 11;
-                            search[key_start..].find('>').and_then(|key_end| {
-                                let key = &search[key_start..key_start + key_end];
-                                let val_start = key_start + key_end + 1;
-                                search[val_start..].find("</parameter>").map(|val_end| {
-                                    let value = search[val_start..val_start + val_end].trim();
-                                    // Try to keep value as JSON, else quote as string
-                                    let json_val = serde_json::from_str::<serde_json::Value>(value)
-                                        .unwrap_or_else(|_| {
-                                            serde_json::Value::String(value.to_string())
-                                        });
-                                    args.push(format!(
-                                        "{}={}",
-                                        key,
-                                        serde_json::to_string(&json_val).unwrap()
-                                    ));
-                                    search = &search[val_start + val_end + 12..];
-                                })
-                            });
-                            if args.is_empty() {
-                                break;
-                            } // avoid infinite loop on parse failure
-                        }
-                        format!("{}({})", name, args.join(", "))
+            let tool_calls: Vec<&str> = trimmed
+                .split("<tool_call>")
+                .filter(|s| s.contains("<function="))
+                .collect();
+
+            if tool_calls.is_empty() {
+                return None;
+            }
+
+            tool_calls
+                .into_iter()
+                .map(|el| {
+                    // Extract function name from <function=NAME>
+                    el.find("<function=").and_then(|fn_start| {
+                        let name_start = fn_start + 10; // length of "<function="
+                        el[name_start..].find('>').map(|name_end| {
+                            let name = &el[name_start..name_start + name_end];
+                            // Extract all <parameter=KEY>\nVALUE\n</parameter> blocks
+                            let mut args = Vec::new();
+                            let mut search = &el[name_start + name_end..];
+                            while let Some(p_start) = search.find("<parameter=") {
+                                let key_start = p_start + 11;
+                                let prev_len = search.len();
+                                search[key_start..].find('>').and_then(|key_end| {
+                                    let key = &search[key_start..key_start + key_end];
+                                    let val_start = key_start + key_end + 1;
+                                    search[val_start..].find("</parameter>").map(|val_end| {
+                                        let value = search[val_start..val_start + val_end].trim();
+                                        // Try to keep value as JSON, else quote as string
+                                        let json_val =
+                                            serde_json::from_str::<serde_json::Value>(value)
+                                                .unwrap_or_else(|_| {
+                                                    serde_json::Value::String(value.to_string())
+                                                });
+                                        args.push(format!(
+                                            "{}={}",
+                                            key,
+                                            serde_json::to_string(&json_val).unwrap()
+                                        ));
+                                        search = &search[val_start + val_end + 12..];
+                                    })
+                                });
+                                if search.len() == prev_len {
+                                    break;
+                                } // avoid infinite loop on parse failure
+                            }
+                            format!("{}({})", name, args.join(", "))
+                        })
                     })
                 })
-            })
+                .collect::<Option<Vec<_>>>()
+                .map(|v| v.join(","))
         }
     }
 }
