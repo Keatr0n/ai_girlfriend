@@ -316,11 +316,7 @@ pub fn parse_tool_call(text: &str, format: ToolFormat) -> Option<String> {
                                     search[val_start..].find("</parameter>").map(|val_end| {
                                         let value = search[val_start..val_start + val_end].trim();
                                         // Try to keep value as JSON, else quote as string
-                                        let json_val =
-                                            serde_json::from_str::<serde_json::Value>(value)
-                                                .unwrap_or_else(|_| {
-                                                    serde_json::Value::String(value.to_string())
-                                                });
+                                        let json_val = serde_json::Value::String(value.to_string());
                                         args.push(format!(
                                             "{}={}",
                                             key,
