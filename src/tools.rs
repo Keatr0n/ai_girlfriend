@@ -46,15 +46,13 @@ impl Tool {
                     '"' => double_quote_depth += 1,
                     '\'' => single_quote_depth += 1,
                     '`' => that_lil_guy_depth += 1,
-                    ',' => {
-                        if double_quote_depth % 2 == 0
-                            && single_quote_depth % 2 == 0
-                            && that_lil_guy_depth % 2 == 0
-                        {
+                    ',' if double_quote_depth % 2 == 0
+                        && single_quote_depth % 2 == 0
+                        && that_lil_guy_depth % 2 == 0 => {
                             vec_args.push(args[last_match_index..i].into());
                             last_match_index = i;
                         }
-                    }
+
                     _ => {}
                 }
             }
@@ -348,6 +346,40 @@ pub fn supports_tools(chat_template: &str) -> bool {
         || chat_template.contains("<tool_call>")
 }
 
+pub fn is_start_of_tool_call(text: &str) -> bool {
+    text.contains("<|tool_call_start|>")
+        || text.contains("<|python_tag|>")
+        || text.contains("functools[")
+        || text.contains("<tool_call>")
+}
+
+pub fn is_tool_call_complete(text: &str) -> bool {
+    if text.contains("<|tool_call_start|>") && text.contains("<|tool_call_end|>") {
+        return true;
+    }
+    if text.contains("<tool_call>") && text.contains("</tool_call>") {
+        return true;
+    }
+    if text.contains("<|python_tag|>")
+        && let Some(pos) = text.find("<|python_tag|>")
+            && text[pos..].contains(')') {
+                return true;
+            }
+    if text.contains("functools[")
+        && let Some(pos) = text.find("functools[")
+            && text[pos..].contains(']') {
+                return true;
+            }
+    if text.trim().starts_with('{') && text.trim().ends_with('}')
+        && let Ok(json) = serde_json::from_str::<serde_json::Value>(text.trim())
+            && json.get("name").and_then(|v| v.as_str()).is_some()
+                && json.get("parameters").is_some()
+            {
+                return true;
+            }
+    false
+}
+
 pub fn parse_python_functions(directory: String) -> Tools {
     let content = fs::read_to_string(&directory).expect("Failed to read file");
 
@@ -377,6 +409,7 @@ pub fn parse_python_functions(directory: String) -> Tools {
         tools,
     }
 }
+
 
 /// Tries all tool call formats and returns the parsed command if found
 pub fn try_parse_tool_call(text: &str) -> Option<(ToolFormat, String)> {

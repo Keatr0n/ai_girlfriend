@@ -16,7 +16,7 @@ use llama_cpp_2::{
 };
 use regex::Regex;
 
-use crate::state::{ConversationSnippet, LifeCycleState, LlmCommand, LlmRole, LlmState};
+use crate::{state::{ConversationSnippet, LifeCycleState, LlmCommand, LlmRole, LlmState}, tools::{is_start_of_tool_call, is_tool_call_complete}};
 use crate::tools::{
     ToJson, parse_python_functions, run_tool, split_tool_calls, supports_tools, try_parse_tool_call,
 };
@@ -237,15 +237,22 @@ fn run_llm_loop(
 
         let mut reply = String::new();
         let mut last_message_chunk_index = 0;
-        let mut sampler = LlamaSampler::chain_simple([
-            LlamaSampler::top_k(30),
+        let mut creative_sampler = LlamaSampler::chain_simple([
             LlamaSampler::min_p(0.05, 1),
+            LlamaSampler::temp(0.80),
             LlamaSampler::dist(rng.next_u32()),
         ]);
+
+        let mut deterministic_sampler = LlamaSampler::chain_simple([
+            LlamaSampler::greedy()
+        ]);
+
         let mut decoder = encoding_rs::UTF_8.new_decoder();
 
         let mut interrupted = false;
         let mut is_thinking = false;
+        let mut is_calling_tools = false;
+        let mut tool_call_start_index = 0;
 
         loop {
             // Check for interrupt event
@@ -254,10 +261,27 @@ fn run_llm_loop(
                 break;
             }
 
-            let token = sampler.sample(&ctx, batch.n_tokens() - 1);
-            sampler.accept(token);
+            if is_start_of_tool_call(reply.clone().split(" ").last().unwrap_or("")) {
+                tool_call_start_index = reply.len() -1;
+                is_calling_tools = true;
+
+            } else if is_calling_tools && is_tool_call_complete(&reply.clone().split_off(tool_call_start_index)) {
+                is_calling_tools = false;
+                tool_call_start_index = 0;
+            }
+
+            let token = if is_calling_tools {
+                let token = deterministic_sampler.sample(&ctx, batch.n_tokens() - 1);
+                deterministic_sampler.accept(token);
+                token
+            } else {
+                let token = creative_sampler.sample(&ctx, batch.n_tokens() - 1);
+                creative_sampler.accept(token);
+                token
+            };
 
             if model.is_eog_token(token) {
+                is_calling_tools = false;
                 if let Some(ref tools) = tools
                     && let Some((_format, tool_command)) = try_parse_tool_call(&reply)
                 {
